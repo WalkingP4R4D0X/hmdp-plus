@@ -198,7 +198,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             SECKILL_ORDER_EXECUTOR.shutdownNow();
         }
     }
-
+    
+    /***
+     * 这是黑马点评的普通版本，升级版本中不再使用此方式
+     */
     private class VoucherOrderHandler implements Runnable{
         private final String queueName = "stream.orders";
         @Override
