@@ -39,6 +39,8 @@ public abstract class AbstractConsumerHandler<T> {
         try {
             if (result) {
                 doConsume(message);
+            }else {
+                return;
             }
         } catch (Throwable t) {
             afterConsumeFailure(message, t);
