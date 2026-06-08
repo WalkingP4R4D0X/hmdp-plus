@@ -151,6 +151,7 @@ public class ReconciliationTaskServiceImpl implements IReconciliationTaskService
             return;
         }
         RedisKeyBuild traceLogKey = RedisKeyBuild.createRedisKey(RedisKeyManage.SECKILL_TRACE_LOG_TAG_KEY, voucherId);
+        RedisKeyBuild seckillUserKey = RedisKeyBuild.createRedisKey(RedisKeyManage.SECKILL_USER_TAG_KEY, voucherId);
         boolean delRedisStockHasHappened = false;
         long now = System.currentTimeMillis();
         for (Entry<String, RedisTraceLogModel> redisTraceLogModelEntry : redisTraceLogMap.entrySet()) {
@@ -179,6 +180,7 @@ public class ReconciliationTaskServiceImpl implements IReconciliationTaskService
                     delRedisStockHasHappened = true;
                 }
                 redisCache.delForHash(traceLogKey, traceId);
+                redisCache.removeForSet(seckillUserKey, redisTraceLogModel.getUserId());
             }
         }
     }
