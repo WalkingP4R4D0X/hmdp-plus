@@ -37,5 +37,14 @@ build/
 
 ### VS Code ###
 .vscode/
-
+.vscode
+.qoder
+.cursor
+.trae
+.codex
+.claude
+.agents
 CLAUDE.md
+AGENTS.md
+
+document
