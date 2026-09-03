@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class ConversationMemory {
@@ -38,6 +39,41 @@ public class ConversationMemory {
         } catch (Exception ignored) { }
     }
 
-    public void delete(String id) { try { redis.delete(key(id)); } catch (Exception ignored) { } }
+    public void claim(String id, Long userId) {
+        try {
+            String owner = userId == null ? "anonymous" : String.valueOf(userId);
+            redis.opsForValue().set(ownerKey(id), owner, TTL);
+        } catch (Exception ignored) { }
+    }
+
+    public boolean belongsTo(String id, Long userId) {
+        try {
+            String owner = redis.opsForValue().get(ownerKey(id));
+            return owner != null && owner.equals(userId == null ? "anonymous" : String.valueOf(userId));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    public boolean exists(String id) {
+        try {
+            return Boolean.TRUE.equals(redis.hasKey(key(id)));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    public void delete(String id) { try { redis.delete(key(id)); redis.delete(ownerKey(id)); } catch (Exception ignored) { } }
+    public List<String> listConversationIds(Long userId) {
+        try {
+            return redis.keys("agent:conversation:c_*").stream()
+                    .map(key -> key.substring("agent:conversation:".length()))
+                    .filter(id -> belongsTo(id, userId))
+                    .sorted().collect(Collectors.toList());
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
     private String key(String id) { return "agent:conversation:" + id; }
+    private String ownerKey(String id) { return "agent:conversation:owner:" + id; }
 }

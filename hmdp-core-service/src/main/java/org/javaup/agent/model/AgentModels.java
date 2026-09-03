@@ -1,7 +1,12 @@
 package org.javaup.agent.model;
 
 import lombok.Data;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.NotBlank;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -14,10 +19,12 @@ public final class AgentModels {
     @Data
     public static class ChatRequest {
         private String conversationId;
-        @Size(min = 1, max = 500)
+        @NotBlank @Size(min = 1, max = 500)
         private String message;
         private Boolean stream;
         private String clientRequestId;
+        private Double latitude;
+        private Double longitude;
     }
 
     @Data
@@ -25,10 +32,15 @@ public final class AgentModels {
         private String intent = "SHOP_RECOMMENDATION";
         private String keyword;
         private String location;
+        @DecimalMin(value = "-90.0") @DecimalMax(value = "90.0")
         private Double latitude;
+        @DecimalMin(value = "-180.0") @DecimalMax(value = "180.0")
         private Double longitude;
+        @Min(100) @Max(50000)
         private Integer radiusMeter;
+        @Min(0) @Max(100000)
         private Integer budgetMax;
+        @DecimalMin(value = "0.0") @DecimalMax(value = "5.0")
         private Double minScore;
         private String openAt;
         private String scene;
@@ -64,6 +76,7 @@ public final class AgentModels {
         private LocalDateTime beginTime;
         private LocalDateTime endTime;
         private Boolean valid;
+        private Boolean needSeckill;
     }
 
     @Data
@@ -83,6 +96,7 @@ public final class AgentModels {
         private String role;
         private String content;
         private Intent filters;
+        private List<String> toolCalls = new ArrayList<>();
         private LocalDateTime createTime = LocalDateTime.now();
     }
 }
