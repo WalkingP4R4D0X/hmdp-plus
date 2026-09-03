@@ -81,3 +81,12 @@ management:
       export:
         enabled: true
       
+
+agent:
+  enabled: true
+  conversation:
+    ttl: 7d
+    max-rounds: 10
+  limits:
+    max-shops: 10
+    max-input-length: 500

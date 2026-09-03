@@ -49,6 +49,11 @@ const router = createRouter({
     {
       path: '/shopDetail/:id?',
       component: () => import('@/views/shop/ShopDetail.vue')
+    },
+    {
+      path: '/agent',
+      name: 'AgentChat',
+      component: () => import('@/views/agent/AgentChat.vue')
     }
   ]
 })
