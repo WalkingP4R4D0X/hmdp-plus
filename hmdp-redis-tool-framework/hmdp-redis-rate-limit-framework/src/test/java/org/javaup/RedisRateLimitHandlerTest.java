@@ -7,8 +7,10 @@ import org.javaup.ratelimit.extension.RateLimitScene;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+
 @Slf4j
-@SpringBootTest
+@SpringBootTest(classes = RedisRateLimitTestApplication.class)
 class RedisRateLimitHandlerTest {
     
     @Resource
@@ -16,7 +18,7 @@ class RedisRateLimitHandlerTest {
 
     @Test
     void test1() throws InterruptedException {
-        rateLimitHandler.execute(1L, 1987041610793484289L, RateLimitScene.SECKILL_ORDER);
+        assertDoesNotThrow(() -> rateLimitHandler.execute(1L, 1987041610793484289L, RateLimitScene.SECKILL_ORDER));
     }
    
 }
