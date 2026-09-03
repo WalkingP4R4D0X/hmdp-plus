@@ -420,7 +420,7 @@ MVP 使用 Redis，不新增关系表。建议消息模型包含：
 }
 ```
 
-### 11.2 用户偏好表（二期）
+### 11.2 用户偏好表
 
 ```text
 user_preference
@@ -435,25 +435,47 @@ user_preference
 - update_time
 ```
 
-只有用户明确表达，或点击、收藏、购买等行为多次验证后，才提升偏好置信度。
+该表属于 Agent 的正式数据设计，可以根据开发和联调需要由项目维护者手动调整表结构。只有用户明确表达，或点击、收藏、购买等行为多次验证后，才提升偏好置信度。
 
 ## 12. 技术架构建议
 
-可先在核心服务中以独立包实现：
+在现有项目中新增独立的 `hmdp-agent` Maven 模块，负责 Agent 的对话编排、工具调用、记忆、排序、权限和观测能力。该模块不直接把大模型逻辑散落到核心业务代码中，核心服务通过明确的模块依赖和业务接口向 Agent 提供商户、优惠券、博客和用户数据能力。
 
 ```text
-hmdp-core-service/src/main/java/org/javaup/agent
+hmdp-agent
 ├── controller
+│   └── AgentChatController
 ├── application
+│   ├── AgentOrchestrator
+│   ├── AgentContextService
+│   └── RecommendationService
 ├── model
+│   ├── LlmClient
+│   ├── ChatRequest
+│   ├── ChatResponse
+│   └── ToolCallResult
 ├── tool
+│   ├── AgentTool
+│   ├── ToolRegistry
+│   ├── ShopSearchTool
+│   ├── ShopDetailTool
+│   ├── NearbyShopTool
+│   ├── VoucherTool
+│   ├── BlogSearchTool
+│   └── UserPreferenceTool
 ├── memory
+│   ├── ConversationMemory
+│   └── UserPreferenceService
 ├── ranking
+│   └── ShopRankingService
 ├── policy
+│   ├── ToolPermissionPolicy
+│   └── ConfirmationPolicy
 └── observability
+    └── AgentMetrics
 ```
 
-稳定后再抽为独立 `hmdp-agent` Maven 模块。
+根 `pom.xml` 增加 `hmdp-agent` 模块。模块内部通过显式的业务端口或已抽取的共享接口访问现有商户、优惠券、博客和用户能力；如果工具需要直接复用核心 Service，应通过依赖方向设计避免 `hmdp-agent` 与 `hmdp-core-service` 形成循环依赖。
 
 架构分层：
 
@@ -656,4 +678,3 @@ agent_no_result_total
 ```
 
 该范围能够最大化复用现有的商户、Redis GEO、优惠券、博客、用户和可观测能力，同时控制模型成本、业务风险和开发复杂度，为后续的个性化推荐和优惠券订阅打下基础。
-
