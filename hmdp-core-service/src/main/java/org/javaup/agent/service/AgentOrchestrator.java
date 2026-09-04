@@ -31,6 +31,7 @@ public class AgentOrchestrator {
     @Resource private VoucherTool voucherTool;
     @Resource private ShopContentTool contentTool;
     @Resource private ShopRankingService ranking;
+    @Resource private DeepSeekClient deepSeekClient;
 
     public AgentModels.ChatResponse chat(AgentModels.ChatRequest request) {
         long started = System.currentTimeMillis();
@@ -55,7 +56,9 @@ public class AgentOrchestrator {
                     ? callNearby(intent, context, calls) : callSearch(intent, context, calls);
             List<AgentModels.ShopCard> cards = ranking.rank(candidates, intent);
             enrich(cards, intent, context, calls);
-            response.setCards(cards); response.setFilters(filters(intent)); response.setAnswer(answer(cards));
+            response.setCards(cards); response.setFilters(filters(intent));
+            String generatedAnswer = deepSeekClient.explain(intent, cards);
+            response.setAnswer(StrUtil.isBlank(generatedAnswer) ? answer(cards) : generatedAnswer);
             persist(conversationId, request.getMessage(), intent, response.getAnswer(), calls);
             log.info("agent_request traceId={} conversationId={} tools={} cards={} latencyMs={}", response.getTraceId(), conversationId, calls, cards.size(), System.currentTimeMillis() - started);
             return response;

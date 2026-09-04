@@ -2,6 +2,7 @@ package org.javaup.agent;
 
 import org.javaup.agent.model.AgentModels;
 import org.javaup.agent.service.RuleBasedIntentParser;
+import org.javaup.agent.service.DeepSeekClient;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -33,5 +34,15 @@ class RuleBasedIntentParserTest {
         assertEquals("西湖区", followUp.getLocation());
         assertEquals(150, followUp.getBudgetMax());
         assertTrue(followUp.getRadiusMeter() == null);
+    }
+
+    @Test
+    void parsesDeepSeekStructuredIntentJson() throws Exception {
+        AgentModels.Intent intent = DeepSeekClient.parseIntentJson(
+                "```json\n{\"keyword\":\"日料\",\"budgetMax\":150,\"needVoucher\":true}\n``` ");
+        assertEquals("SHOP_RECOMMENDATION", intent.getIntent());
+        assertEquals("日料", intent.getKeyword());
+        assertEquals(150, intent.getBudgetMax());
+        assertTrue(intent.getNeedVoucher());
     }
 }
