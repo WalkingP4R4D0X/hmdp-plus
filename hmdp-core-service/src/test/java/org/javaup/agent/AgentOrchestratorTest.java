@@ -27,4 +27,27 @@ class AgentOrchestratorTest {
         assertTrue(card.getMissingData());
         assertNull(card.getScore());
     }
+
+    @Test
+    void requestCoordinatesAreCopiedToIntent() {
+        AgentModels.ChatRequest request = new AgentModels.ChatRequest();
+        request.setLatitude(30.32);
+        request.setLongitude(120.15);
+        AgentModels.Intent intent = new AgentModels.Intent();
+
+        org.javaup.agent.service.AgentOrchestrator.applyRequestLocation(request, intent);
+
+        assertEquals(30.32, intent.getLatitude());
+        assertEquals(120.15, intent.getLongitude());
+    }
+
+    @Test
+    void incompleteRequestCoordinatesAreRejected() {
+        AgentModels.ChatRequest request = new AgentModels.ChatRequest();
+        request.setLatitude(30.32);
+        AgentModels.Intent intent = new AgentModels.Intent();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> org.javaup.agent.service.AgentOrchestrator.applyRequestLocation(request, intent));
+    }
 }

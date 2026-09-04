@@ -49,6 +49,7 @@ public class AgentOrchestrator {
         }
         try {
             AgentModels.Intent intent = intentParser.parse(request.getMessage(), memory.read(conversationId));
+            applyRequestLocation(request, intent);
             List<String> calls = new ArrayList<>();
             List<Shop> candidates = intent.getLatitude() != null && intent.getLongitude() != null
                     ? callNearby(intent, context, calls) : callSearch(intent, context, calls);
@@ -61,6 +62,19 @@ public class AgentOrchestrator {
         } catch (Exception e) {
             log.warn("agent request failed traceId={}", response.getTraceId(), e);
             return fallback(request, response, context);
+        }
+    }
+
+    /** Request coordinates are trusted client context; model output must not override them. */
+    public static void applyRequestLocation(AgentModels.ChatRequest request, AgentModels.Intent intent) {
+        boolean hasLatitude = request.getLatitude() != null;
+        boolean hasLongitude = request.getLongitude() != null;
+        if (hasLatitude != hasLongitude) {
+            throw new IllegalArgumentException("latitude and longitude must be provided together");
+        }
+        if (hasLatitude) {
+            intent.setLatitude(request.getLatitude());
+            intent.setLongitude(request.getLongitude());
         }
     }
 
