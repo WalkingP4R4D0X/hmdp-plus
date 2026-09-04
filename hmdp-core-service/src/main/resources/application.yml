@@ -90,3 +90,7 @@ agent:
   limits:
     max-shops: 10
     max-input-length: 500
+  llm:
+    base-url: ${AGENT_LLM_BASE_URL:https://api.deepseek.com}
+    api-key: ${AGENT_LLM_API_KEY:}
+    model: ${AGENT_LLM_MODEL:deepseek-chat}
