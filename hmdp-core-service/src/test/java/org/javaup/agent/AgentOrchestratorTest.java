@@ -3,7 +3,11 @@ package org.javaup.agent;
 import org.javaup.agent.model.AgentModels;
 import org.javaup.agent.ranking.ShopRankingService;
 import org.javaup.entity.Shop;
+import org.javaup.entity.Voucher;
+import org.javaup.service.impl.VoucherServiceImpl;
 import org.junit.jupiter.api.Test;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -49,5 +53,21 @@ class AgentOrchestratorTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> org.javaup.agent.service.AgentOrchestrator.applyRequestLocation(request, intent));
+    }
+
+    @Test
+    void duplicateVoucherRowsAreMergedAndKeepSeckillFields() {
+        Voucher plain = new Voucher().setId(4L).setShopId(4L).setTitle("秒杀券").setStatus(1)
+                .setType(1);
+        Voucher seckill = new Voucher().setId(4L).setShopId(4L).setTitle("秒杀券").setStatus(1)
+                .setType(1).setStock(50).setBeginTime(LocalDateTime.now().minusMinutes(1))
+                .setEndTime(LocalDateTime.now().plusHours(1));
+
+        List<Voucher> result = VoucherServiceImpl.mergeDuplicateVouchers(new ArrayList<>(List.of(plain, seckill)));
+
+        assertEquals(1, result.size());
+        assertEquals(1, result.get(0).getStatus());
+        assertEquals(50, result.get(0).getStock());
+        assertNotNull(result.get(0).getBeginTime());
     }
 }

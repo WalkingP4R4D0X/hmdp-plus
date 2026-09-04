@@ -45,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -110,9 +111,48 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
     @Override
     public Result<List<Voucher>> queryVoucherOfShop(Long shopId) {
         // 查询优惠券信息
-        List<Voucher> vouchers = getBaseMapper().queryVoucherOfShop(shopId);
+        List<Voucher> vouchers = mergeDuplicateVouchers(getBaseMapper().queryVoucherOfShop(shopId));
         // 返回结果
         return Result.ok(vouchers);
+    }
+
+    /**
+     * A sharded join can return one row per physical table combination. Merge those
+     * rows by voucher id and keep the row carrying seckill fields when available.
+     */
+    public static List<Voucher> mergeDuplicateVouchers(List<Voucher> vouchers) {
+        if (vouchers == null || vouchers.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashMap<Long, Voucher> merged = new LinkedHashMap<>();
+        for (Voucher candidate : vouchers) {
+            if (candidate == null || candidate.getId() == null) {
+                continue;
+            }
+            Voucher current = merged.get(candidate.getId());
+            if (current == null) {
+                merged.put(candidate.getId(), candidate);
+                continue;
+            }
+            copyIfNull(current, candidate);
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private static void copyIfNull(Voucher target, Voucher source) {
+        if (target.getShopId() == null) target.setShopId(source.getShopId());
+        if (target.getTitle() == null) target.setTitle(source.getTitle());
+        if (target.getSubTitle() == null) target.setSubTitle(source.getSubTitle());
+        if (target.getRules() == null) target.setRules(source.getRules());
+        if (target.getPayValue() == null) target.setPayValue(source.getPayValue());
+        if (target.getActualValue() == null) target.setActualValue(source.getActualValue());
+        if (target.getType() == null) target.setType(source.getType());
+        if (target.getStatus() == null) target.setStatus(source.getStatus());
+        if (target.getStock() == null) target.setStock(source.getStock());
+        if (target.getBeginTime() == null) target.setBeginTime(source.getBeginTime());
+        if (target.getEndTime() == null) target.setEndTime(source.getEndTime());
+        if (target.getCreateTime() == null) target.setCreateTime(source.getCreateTime());
+        if (target.getUpdateTime() == null) target.setUpdateTime(source.getUpdateTime());
     }
 
     @Override
