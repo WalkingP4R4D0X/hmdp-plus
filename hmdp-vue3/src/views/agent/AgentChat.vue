@@ -162,7 +162,7 @@ function openShop(card) {
           placeholder="例如：西湖区适合约会、人均150以内的日料"
           @keydown.enter.exact.prevent="send()"
         /><button v-if="loading" class="stop" @click="stop">停止</button
-        ><button v-else class="send" @click="send">发送</button>
+        ><button v-else class="send" @click="send()">发送</button>
       </div>
     </section>
   </main>
