@@ -4,6 +4,7 @@ import org.javaup.agent.controller.AgentChatController;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.lang.reflect.Method;
 
@@ -17,5 +18,13 @@ class AgentChatControllerTest {
 
         assertEquals("id", new MethodParameter(messages, 0).getParameterAnnotation(PathVariable.class).value());
         assertEquals("id", new MethodParameter(delete, 0).getParameterAnnotation(PathVariable.class).value());
+    }
+
+    @Test
+    void controllerIsGuardedByTheAgentFeatureFlag() {
+        ConditionalOnProperty condition = AgentChatController.class.getAnnotation(ConditionalOnProperty.class);
+        assertEquals("agent", condition.prefix());
+        assertEquals("enabled", condition.name()[0]);
+        assertEquals("true", condition.havingValue());
     }
 }

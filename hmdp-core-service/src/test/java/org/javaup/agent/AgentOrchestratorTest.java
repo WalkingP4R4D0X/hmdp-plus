@@ -33,6 +33,19 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    void requestedOpeningTimeIsAHardFilter() {
+        Shop closed = new Shop().setId(1L).setName("晚间休息").setOpenHours("10:00-18:00");
+        Shop open = new Shop().setId(2L).setName("营业中").setOpenHours("10:00-22:00");
+        AgentModels.Intent intent = new AgentModels.Intent();
+        intent.setOpenAt("21:00");
+
+        List<AgentModels.ShopCard> result = new ShopRankingService().rank(List.of(closed, open), intent);
+
+        assertEquals(1, result.size());
+        assertEquals("营业中", result.get(0).getName());
+    }
+
+    @Test
     void requestCoordinatesAreCopiedToIntent() {
         AgentModels.ChatRequest request = new AgentModels.ChatRequest();
         request.setLatitude(30.32);

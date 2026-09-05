@@ -312,7 +312,11 @@ agent:
     max-tool-calls: 5
     max-shops: 10
     max-input-length: 500
+    rate-limit-window: 60s
+    rate-limit-per-window: 20
 ```
+
+`agent.enabled=false` 时不注册 Agent HTTP Controller；接口按客户端 IP、登录用户和会话 ID 分别限流。Redis 限流不可用时采用 fail-open，避免影响现有核心业务链路。
 
 开发环境通过 `.env` 或本地未提交配置提供模型密钥；测试环境使用 WireMock，不调用真实模型。生产环境通过密钥管理服务或容器 Secret 注入。
 

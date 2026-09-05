@@ -23,9 +23,8 @@ public class ShopSearchTool implements AgentTool<AgentModels.Intent, List<Shop>>
     @Override
     public List<Shop> execute(AgentModels.Intent input, AgentContext context) {
         return shopService.query()
-                .and(query -> query.like(StrUtil.isNotBlank(input.getKeyword()), "name", input.getKeyword())
-                        .or()
-                        .like(StrUtil.isNotBlank(input.getLocation()), "area", input.getLocation()))
+                .like(StrUtil.isNotBlank(input.getKeyword()), "name", input.getKeyword())
+                .like(StrUtil.isNotBlank(input.getLocation()), "area", input.getLocation())
                 .last("LIMIT 30")
                 .list();
     }

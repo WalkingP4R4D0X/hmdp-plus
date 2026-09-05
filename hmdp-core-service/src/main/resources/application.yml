@@ -90,6 +90,8 @@ agent:
   limits:
     max-shops: 10
     max-input-length: 500
+    rate-limit-window: 60s
+    rate-limit-per-window: 20
   llm:
     base-url: ${AGENT_LLM_BASE_URL:https://api.deepseek.com}
     api-key: ${AGENT_LLM_API_KEY:}
