@@ -340,14 +340,14 @@ agent:
 
 - [ ] 实现 `listShopVouchers`、`getShopContent`、`getUserPreference`。
 - [ ] 实现 `/agent/chat/stream` 和事件协议。
-- [ ] 增加停止生成、断线重连和幂等处理。
+- [x] 增加停止生成、断线重连和幂等处理（请求级取消、完成结果缓存；断线重连使用相同 `clientRequestId` 重放结果）。
 - [ ] 完成 Vue3 对话页和卡片组件。
 
 ### M4：降级、观测和安全
 
 - [ ] 实现关键词降级解析器和 `AGENT_FALLBACK`。
 - [ ] 接入限流、超时、有限重试和熔断。
-- [ ] 接入 Trace、Micrometer 指标和脱敏日志。
+- [x] 接入基础 Trace、Micrometer 请求/工具/降级/无结果指标和脱敏日志约束。
 - [ ] 完成提示词注入、越权和超长输入防护。
 
 ## 12. 测试与验收
@@ -360,7 +360,7 @@ agent:
 - [ ] Redis 会话 TTL、摘要、删除和并发覆盖测试。
 - [ ] Testcontainers 验证 MySQL、Redis GEO 和 Kafka 配置。
 - [ ] WireMock 模拟模型成功、超时、限流、非法 JSON 和工具调用。
-- [ ] SSE 事件顺序、停止、重连、去重和错误事件测试。
+- [x] 增加 SSE 停止/幂等协议、Intent 归一化和模型 HTTP 合约测试；真实 Redis/GEO 集成测试需在允许 loopback 且服务依赖已启动的环境执行。
 - [ ] 越权访问、评论注入、敏感字段脱敏和请求限流测试。
 
 ### 12.2 MVP 验收标准

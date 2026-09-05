@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentChatControllerTest {
     @Test
@@ -26,5 +27,13 @@ class AgentChatControllerTest {
         assertEquals("agent", condition.prefix());
         assertEquals("enabled", condition.name()[0]);
         assertEquals("true", condition.havingValue());
+    }
+
+    @Test
+    void streamAndStopEndpointsAreExposed() throws NoSuchMethodException {
+        assertTrue(AgentChatController.class.getMethod("stream", org.javaup.agent.model.AgentModels.ChatRequest.class, jakarta.servlet.http.HttpServletRequest.class)
+                .isAnnotationPresent(org.springframework.web.bind.annotation.PostMapping.class));
+        assertTrue(AgentChatController.class.getMethod("stop", String.class)
+                .isAnnotationPresent(org.springframework.web.bind.annotation.PostMapping.class));
     }
 }

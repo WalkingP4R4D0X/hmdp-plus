@@ -1,7 +1,7 @@
 <script setup>
 import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { streamAgent } from '@/api/agent'
+import { streamAgent, stopAgent } from '@/api/agent'
 
 const router = useRouter()
 const input = ref('')
@@ -15,6 +15,7 @@ const messages = ref([
 const loading = ref(false)
 const controller = ref(null)
 const conversationId = ref(null)
+const activeRequestId = ref(null)
 const quick = [
   '附近有什么好吃的',
   '拱墅区人均100以内适合约会的餐厅',
@@ -35,12 +36,13 @@ async function send(text = input.value) {
   loading.value = true
   controller.value = new AbortController()
   try {
+    activeRequestId.value = crypto.randomUUID()
     const response = await streamAgent(
       {
         conversationId: conversationId.value,
         message: text,
         stream: true,
-        clientRequestId: crypto.randomUUID()
+        clientRequestId: activeRequestId.value
       },
       controller.value.signal
     )
@@ -82,6 +84,7 @@ async function send(text = input.value) {
 }
 function stop() {
   controller.value?.abort()
+  if (activeRequestId.value) stopAgent(activeRequestId.value).catch(() => {})
   loading.value = false
 }
 function openShop(card) {

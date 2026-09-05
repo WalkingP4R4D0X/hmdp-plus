@@ -16,7 +16,12 @@ public class RuleBasedIntentParser implements IntentParser {
     @Resource
     private DeepSeekClient deepSeekClient;
     @Override public AgentModels.Intent parse(String message,List<AgentModels.Message> history){
-        AgentModels.Intent i = deepSeekClient == null ? null : deepSeekClient.parseIntent(message, history);
+        AgentModels.Intent i = null;
+        try {
+            i = deepSeekClient == null ? null : deepSeekClient.parseIntent(message, history);
+        } catch (RuntimeException ignored) {
+            // A model outage is handled by the deterministic parser below.
+        }
         if (i == null) i = parseText(message);
         mergeHistory(i, history);
         return i;

@@ -14,6 +14,8 @@ import org.javaup.agent.tool.VoucherTool;
 import org.javaup.entity.Shop;
 import org.javaup.utils.UserHolder;
 import org.springframework.stereotype.Service;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -32,9 +34,13 @@ public class AgentOrchestrator {
     @Resource private ShopContentTool contentTool;
     @Resource private ShopRankingService ranking;
     @Resource private DeepSeekClient deepSeekClient;
+    @Resource private IntentNormalizer intentNormalizer;
+    @Resource private MeterRegistry meterRegistry;
 
     public AgentModels.ChatResponse chat(AgentModels.ChatRequest request) {
         long started = System.currentTimeMillis();
+        meterRegistry.counter("agent.request.total").increment();
+        Timer.Sample timer = Timer.start(meterRegistry);
         AgentModels.ChatResponse response = new AgentModels.ChatResponse();
         response.setTraceId("trace-" + UUID.randomUUID());
         String conversationId = memory.ensureId(request.getConversationId());
@@ -49,7 +55,7 @@ public class AgentOrchestrator {
             response.setAnswer("请输入1-500字的查店需求"); response.setErrorCode("AGENT_REQUEST_INVALID"); return response;
         }
         try {
-            AgentModels.Intent intent = intentParser.parse(request.getMessage(), memory.read(conversationId));
+            AgentModels.Intent intent = intentNormalizer.normalize(intentParser.parse(request.getMessage(), memory.read(conversationId)));
             applyRequestLocation(request, intent);
             List<String> calls = new ArrayList<>();
             List<Shop> candidates = intent.getLatitude() != null && intent.getLongitude() != null
@@ -59,12 +65,21 @@ public class AgentOrchestrator {
             response.setCards(cards); response.setFilters(filters(intent));
             String generatedAnswer = deepSeekClient.explain(intent, cards);
             response.setAnswer(StrUtil.isBlank(generatedAnswer) ? answer(cards) : generatedAnswer);
+            if (cards.isEmpty()) meterRegistry.counter("agent.no_result.total").increment();
             persist(conversationId, request.getMessage(), intent, response.getAnswer(), calls);
             log.info("agent_request traceId={} conversationId={} tools={} cards={} latencyMs={}", response.getTraceId(), conversationId, calls, cards.size(), System.currentTimeMillis() - started);
             return response;
         } catch (Exception e) {
             log.warn("agent request failed traceId={}", response.getTraceId(), e);
+            if (Thread.currentThread().isInterrupted()) {
+                response.setErrorCode("AGENT_REQUEST_CANCELLED");
+                response.setAnswer("已停止本次推荐请求");
+                return response;
+            }
+            meterRegistry.counter("agent.fallback.total").increment();
             return fallback(request, response, context);
+        } finally {
+            timer.stop(Timer.builder("agent.request.latency").register(meterRegistry));
         }
     }
 
@@ -78,11 +93,15 @@ public class AgentOrchestrator {
         if (hasLatitude) {
             intent.setLatitude(request.getLatitude());
             intent.setLongitude(request.getLongitude());
+        } else {
+            intent.setLatitude(null);
+            intent.setLongitude(null);
         }
     }
 
-    private List<Shop> callSearch(AgentModels.Intent intent, AgentContext context, List<String> calls) { calls.add(shopSearchTool.name()); return shopSearchTool.execute(intent, context); }
-    private List<Shop> callNearby(AgentModels.Intent intent, AgentContext context, List<String> calls) { calls.add(nearbyShopTool.name()); return nearbyShopTool.execute(intent, context); }
+    private List<Shop> callSearch(AgentModels.Intent intent, AgentContext context, List<String> calls) { return toolCall(shopSearchTool.name(), () -> shopSearchTool.execute(intent, context), calls); }
+    private List<Shop> callNearby(AgentModels.Intent intent, AgentContext context, List<String> calls) { return toolCall(nearbyShopTool.name(), () -> nearbyShopTool.execute(intent, context), calls); }
+    private List<Shop> toolCall(String name, java.util.function.Supplier<List<Shop>> action, List<String> calls) { calls.add(name); Timer.Sample timer = Timer.start(meterRegistry); try { return action.get(); } finally { timer.stop(Timer.builder("agent.tool.latency").tag("tool", name).register(meterRegistry)); } }
     private void enrich(List<AgentModels.ShopCard> cards, AgentModels.Intent intent, AgentContext context, List<String> calls) {
         for (AgentModels.ShopCard card : cards) {
             if (calls.size() >= MAX_TOOL_CALLS) break;
@@ -95,7 +114,7 @@ public class AgentOrchestrator {
         }
     }
     private AgentModels.ChatResponse fallback(AgentModels.ChatRequest request, AgentModels.ChatResponse response, AgentContext context) {
-        AgentModels.Intent intent = RuleBasedIntentParser.parseText(request.getMessage());
+        AgentModels.Intent intent = intentNormalizer.normalize(RuleBasedIntentParser.parseText(request.getMessage()));
         List<AgentModels.ShopCard> cards;
         try { cards = ranking.rank(shopSearchTool.execute(intent, context), intent); } catch (Exception ignored) { cards = List.of(); }
         response.setCards(cards); response.setFilters(filters(intent)); response.setFallback(true); response.setErrorCode("AGENT_FALLBACK");

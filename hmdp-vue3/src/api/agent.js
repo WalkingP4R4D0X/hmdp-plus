@@ -8,6 +8,8 @@ export const streamAgent = (data, signal) =>
     body: JSON.stringify(data),
     signal
   })
+export const stopAgent = (clientRequestId) =>
+  request.post('/agent/chat/stop', null, { params: { clientRequestId } })
 export const getAgentMessages = (id) =>
   request.get(`/agent/conversations/${id}/messages`)
 export const deleteAgentConversation = (id) =>
