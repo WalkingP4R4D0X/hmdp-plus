@@ -1,6 +1,7 @@
 package org.javaup.agent;
 
 import org.javaup.agent.model.AgentModels;
+import org.javaup.agent.tool.NearbyShopTool;
 import org.javaup.agent.ranking.ShopRankingService;
 import org.javaup.entity.Shop;
 import org.javaup.entity.Voucher;
@@ -46,6 +47,19 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    void radiusRequiresMeasuredDistance() {
+        Shop unknownDistance = new Shop().setId(1L).setName("未知距离");
+        Shop inside = new Shop().setId(2L).setName("范围内").setDistance(1200D);
+        AgentModels.Intent intent = new AgentModels.Intent();
+        intent.setRadiusMeter(3000);
+
+        List<AgentModels.ShopCard> result = new ShopRankingService().rank(List.of(unknownDistance, inside), intent);
+
+        assertEquals(1, result.size());
+        assertEquals("范围内", result.get(0).getName());
+    }
+
+    @Test
     void requestCoordinatesAreCopiedToIntent() {
         AgentModels.ChatRequest request = new AgentModels.ChatRequest();
         request.setLatitude(30.32);
@@ -66,6 +80,71 @@ class AgentOrchestratorTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> org.javaup.agent.service.AgentOrchestrator.applyRequestLocation(request, intent));
+    }
+
+    @Test
+    void radiusWithoutDistanceIsRejectedByRanking() {
+        Shop unknownDistance = new Shop().setId(1L).setName("未知距离");
+        AgentModels.Intent intent = new AgentModels.Intent();
+        intent.setRadiusMeter(3000);
+
+        assertTrue(new ShopRankingService().rank(List.of(unknownDistance), intent).isEmpty());
+    }
+
+    @Test
+    void emptyIntentDoesNotAllowUnboundedShopSearch() {
+        assertFalse(org.javaup.agent.service.AgentOrchestrator.hasSearchConstraint(new AgentModels.Intent()));
+        AgentModels.Intent constrained = new AgentModels.Intent();
+        constrained.setKeyword("火锅");
+        assertTrue(org.javaup.agent.service.AgentOrchestrator.hasSearchConstraint(constrained));
+    }
+
+    @Test
+    void nearbyResultsApplyCategoryAndAreaFilters() {
+        AgentModels.Intent intent = new AgentModels.Intent();
+        intent.setKeyword("火锅");
+        intent.setLocation("拱墅区");
+        Shop hotpot = new Shop().setName("拱墅火锅店").setArea("运河上街").setAddress("拱墅区某路");
+        Shop sushi = new Shop().setName("寿司店").setArea("运河上街").setAddress("拱墅区某路");
+        Shop otherArea = new Shop().setName("火锅店").setArea("西湖区").setAddress("西湖区某路");
+
+        assertTrue(NearbyShopTool.matchesKeywordAndLocation(hotpot, intent));
+        assertFalse(NearbyShopTool.matchesKeywordAndLocation(sushi, intent));
+        assertFalse(NearbyShopTool.matchesKeywordAndLocation(otherArea, intent));
+    }
+
+    @Test
+    void nearbyFoodWithoutKeywordDoesNotMatchKtv() {
+        AgentModels.Intent intent = new AgentModels.Intent();
+        Shop food = new Shop().setName("餐厅").setTypeId(1L);
+        Shop ktv = new Shop().setName("KTV").setTypeId(2L);
+
+        assertTrue(NearbyShopTool.matchesKeywordAndLocation(food, intent));
+        // Type selection is applied before this predicate; this assertion documents
+        // that the predicate itself does not invent a name keyword.
+        assertTrue(NearbyShopTool.matchesKeywordAndLocation(ktv, intent));
+    }
+
+    @Test
+    void nearbyKeywordMatchesTopLevelTypeAndAliases() {
+        AgentModels.Intent ktvIntent = new AgentModels.Intent();
+        ktvIntent.setKeyword("唱歌");
+        Shop ktv = new Shop().setName("开乐迪").setTypeId(2L);
+        Shop food = new Shop().setName("开乐迪").setTypeId(1L);
+
+        assertEquals(2L, NearbyShopTool.typeIdForKeyword("KTV"));
+        assertTrue(NearbyShopTool.matchesKeywordAndLocation(ktv, ktvIntent));
+        assertFalse(NearbyShopTool.matchesKeywordAndLocation(food, ktvIntent));
+    }
+
+    @Test
+    void nearbyFoodKeywordMatchesCommonNameVariants() {
+        AgentModels.Intent intent = new AgentModels.Intent();
+        intent.setKeyword("火锅");
+        assertTrue(NearbyShopTool.matchesKeywordAndLocation(
+                new Shop().setName("幸福里老北京涮锅"), intent));
+        assertFalse(NearbyShopTool.matchesKeywordAndLocation(
+                new Shop().setName("浅草屋寿司"), intent));
     }
 
     @Test
