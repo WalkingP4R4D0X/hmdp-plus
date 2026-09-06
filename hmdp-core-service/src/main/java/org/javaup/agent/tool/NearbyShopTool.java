@@ -47,15 +47,38 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
         }
         Map<Long, Double> distances = new HashMap<>();
         for (long typeId : geoTypeIds(input)) {
-            GeoResults<RedisGeoCommands.GeoLocation<String>> results = redis.opsForGeo().search(
+            GeoResults<RedisGeoCommands.GeoLocation<String>> results = geoSearch(typeId, input);
+            if (results == null) {
+                continue;
+            }
+            parseGeoResults(results, distances);
+        }
+        if (distances.isEmpty()) {
+            return List.of();
+        }
+        List<Shop> shops = lookupShops(distances).stream()
+                .filter(shop -> matchesKeywordAndLocation(shop, input))
+                .toList();
+        shops.forEach(shop -> shop.setDistance(distances.get(shop.getId())));
+        shops.sort(Comparator.comparing(Shop::getDistance, Comparator.nullsLast(Double::compareTo)));
+        return new ArrayList<>(shops);
+    }
+
+    private GeoResults<RedisGeoCommands.GeoLocation<String>> geoSearch(long typeId, AgentModels.Intent input) {
+        try {
+            return redis.opsForGeo().search(
                     SHOP_GEO_KEY + typeId,
                     GeoReference.fromCoordinate(input.getLongitude(), input.getLatitude()),
                     // The intent radius is stored in meters; Redis GEO receives the equivalent kilometer value.
                     new Distance(input.getRadiusMeter() / 1000d, Metrics.KILOMETERS),
                     RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs().includeDistance().limit(10));
-            if (results == null) {
-                continue;
-            }
+        } catch (RuntimeException e) {
+            throw new NearbyShopQueryException(NearbyShopQueryException.Stage.GEO_SEARCH, e);
+        }
+    }
+
+    private void parseGeoResults(GeoResults<RedisGeoCommands.GeoLocation<String>> results, Map<Long, Double> distances) {
+        try {
             for (GeoResult<RedisGeoCommands.GeoLocation<String>> result : results) {
                 try {
                     distances.put(Long.valueOf(result.getContent().getName()), result.getDistance().getValue());
@@ -63,16 +86,17 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
                     // Ignore malformed GEO members instead of trusting them as shop identifiers.
                 }
             }
+        } catch (RuntimeException e) {
+            throw new NearbyShopQueryException(NearbyShopQueryException.Stage.GEO_RESULT_PARSE, e);
         }
-        if (distances.isEmpty()) {
-            return List.of();
+    }
+
+    private List<Shop> lookupShops(Map<Long, Double> distances) {
+        try {
+            return shopService.listByIds(distances.keySet());
+        } catch (RuntimeException e) {
+            throw new NearbyShopQueryException(NearbyShopQueryException.Stage.SHOP_LOOKUP, e);
         }
-        List<Shop> shops = shopService.listByIds(distances.keySet()).stream()
-                .filter(shop -> matchesKeywordAndLocation(shop, input))
-                .toList();
-        shops.forEach(shop -> shop.setDistance(distances.get(shop.getId())));
-        shops.sort(Comparator.comparing(Shop::getDistance, Comparator.nullsLast(Double::compareTo)));
-        return new ArrayList<>(shops);
     }
 
     private static Set<Long> geoTypeIds(AgentModels.Intent input) {

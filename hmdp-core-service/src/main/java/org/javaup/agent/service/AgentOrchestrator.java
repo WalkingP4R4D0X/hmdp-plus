@@ -8,6 +8,7 @@ import org.javaup.agent.model.AgentContext;
 import org.javaup.agent.model.AgentModels;
 import org.javaup.agent.ranking.ShopRankingService;
 import org.javaup.agent.tool.NearbyShopTool;
+import org.javaup.agent.tool.NearbyShopQueryException;
 import org.javaup.agent.tool.ShopContentTool;
 import org.javaup.agent.tool.ShopSearchTool;
 import org.javaup.agent.tool.VoucherTool;
@@ -97,7 +98,7 @@ public class AgentOrchestrator {
             log.info("agent_request traceId={} conversationId={} tools={} cards={} latencyMs={}", response.getTraceId(), conversationId, calls, cards.size(), System.currentTimeMillis() - started);
             return response;
         } catch (Exception e) {
-            log.warn("agent request failed traceId={}", response.getTraceId(), e);
+            logAgentFailure(response.getTraceId(), conversationId, e);
             if (Thread.currentThread().isInterrupted()) {
                 response.setErrorCode("AGENT_REQUEST_CANCELLED");
                 response.setAnswer("已停止本次推荐请求");
@@ -108,6 +109,27 @@ public class AgentOrchestrator {
         } finally {
             timer.stop(Timer.builder("agent.request.latency").register(meterRegistry));
         }
+    }
+
+    private void logAgentFailure(String traceId, String conversationId, Exception exception) {
+        Throwable rootCause = rootCause(exception);
+        String stage = exception instanceof NearbyShopQueryException nearby ? nearby.getStage().name() : "ORCHESTRATION";
+        log.error("agent_request_failed traceId={} conversationId={} stage={} exceptionType={} message={} rootCauseType={} rootCauseMessage={}",
+                traceId, conversationId, stage, exception.getClass().getName(), safeMessage(exception),
+                rootCause.getClass().getName(), safeMessage(rootCause), exception);
+    }
+
+    private static Throwable rootCause(Throwable exception) {
+        Throwable current = exception;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private static String safeMessage(Throwable exception) {
+        String message = exception.getMessage();
+        return message == null ? "" : message.replaceAll("[\\r\\n]", " ");
     }
 
     /** Request coordinates are trusted client context; model output must not override them. */
