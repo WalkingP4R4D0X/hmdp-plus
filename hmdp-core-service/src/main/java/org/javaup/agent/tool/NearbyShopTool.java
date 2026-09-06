@@ -58,10 +58,9 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
         }
         List<Shop> shops = lookupShops(distances).stream()
                 .filter(shop -> matchesKeywordAndLocation(shop, input))
-                .toList();
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         shops.forEach(shop -> shop.setDistance(distances.get(shop.getId())));
-        shops.sort(Comparator.comparing(Shop::getDistance, Comparator.nullsLast(Double::compareTo)));
-        return new ArrayList<>(shops);
+        return sortByDistance(shops);
     }
 
     private GeoResults<RedisGeoCommands.GeoLocation<String>> geoSearch(long typeId, AgentModels.Intent input) {
@@ -97,6 +96,12 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
         } catch (RuntimeException e) {
             throw new NearbyShopQueryException(NearbyShopQueryException.Stage.SHOP_LOOKUP, e);
         }
+    }
+
+    static List<Shop> sortByDistance(List<Shop> shops) {
+        List<Shop> sorted = new ArrayList<>(shops);
+        sorted.sort(Comparator.comparing(Shop::getDistance, Comparator.nullsLast(Double::compareTo)));
+        return sorted;
     }
 
     private static Set<Long> geoTypeIds(AgentModels.Intent input) {
