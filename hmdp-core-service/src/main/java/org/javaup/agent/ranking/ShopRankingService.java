@@ -18,7 +18,9 @@ public class ShopRankingService {
     private boolean matches(Shop s, AgentModels.Intent i) {
         if (i.getBudgetMax() != null && s.getAvgPrice() != null && s.getAvgPrice() > i.getBudgetMax()) return false;
         if (i.getMinScore() != null && s.getScore() != null && s.getScore() / 10.0 < i.getMinScore()) return false;
-        if (i.getRadiusMeter() != null && s.getDistance() != null && s.getDistance() > i.getRadiusMeter()) return false;
+        // A radius is a hard constraint: without a measured distance we cannot
+        // prove that a shop is inside the requested range.
+        if (i.getRadiusMeter() != null && (s.getDistance() == null || s.getDistance() > i.getRadiusMeter())) return false;
         if (i.getOpenAt() != null && !openNow(s.getOpenHours(), i.getOpenAt())) return false;
         return true;
     }

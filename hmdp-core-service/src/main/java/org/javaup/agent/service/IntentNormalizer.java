@@ -13,10 +13,11 @@ import java.util.Set;
 public class IntentNormalizer {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
     private static final Set<String> SCENES = Set.of("约会", "聚餐", "亲子", "拍照", "夜宵");
+    private static final Set<String> INTENTS = Set.of("SHOP_RECOMMENDATION", "GREETING");
 
     public AgentModels.Intent normalize(AgentModels.Intent intent) {
         if (intent == null) intent = new AgentModels.Intent();
-        if (!"SHOP_RECOMMENDATION".equals(intent.getIntent())) intent.setIntent("SHOP_RECOMMENDATION");
+        if (!INTENTS.contains(intent.getIntent())) intent.setIntent("SHOP_RECOMMENDATION");
         intent.setKeyword(clean(intent.getKeyword(), 40));
         intent.setLocation(clean(intent.getLocation(), 40));
         intent.setRadiusMeter(inRange(intent.getRadiusMeter(), 100, 50000));

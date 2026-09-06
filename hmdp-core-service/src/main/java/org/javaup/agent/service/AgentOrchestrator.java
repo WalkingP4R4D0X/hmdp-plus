@@ -58,7 +58,34 @@ public class AgentOrchestrator {
             AgentModels.Intent intent = intentNormalizer.normalize(intentParser.parse(request.getMessage(), memory.read(conversationId)));
             applyRequestLocation(request, intent);
             List<String> calls = new ArrayList<>();
+            if ("GREETING".equals(intent.getIntent())) {
+                response.setFilters(filters(intent));
+                response.setAnswer("你好，我是黑马点评智能导购。告诉我想找的品类、区域、预算或距离，我来帮你推荐。");
+                persist(conversationId, request.getMessage(), intent, response.getAnswer(), calls);
+                log.info("agent_request traceId={} conversationId={} intent=GREETING tools=[] latencyMs={}", response.getTraceId(), conversationId, System.currentTimeMillis() - started);
+                return response;
+            }
+            if ("INVALID_INPUT".equals(intent.getParseStatus())) {
+                response.setErrorCode("AGENT_INPUT_UNCLEAR");
+                response.setAnswer("我暂时没看懂这条消息，请输入具体的品类、区域、预算或距离，例如：拱墅区人均100元以内的日料。");
+                persist(conversationId, request.getMessage(), intent, response.getAnswer(), calls);
+                log.info("agent_request traceId={} conversationId={} intent=INVALID_INPUT tools=[] latencyMs={}", response.getTraceId(), conversationId, System.currentTimeMillis() - started);
+                return response;
+            }
+            if (!hasSearchConstraint(intent)) {
+                response.setFilters(filters(intent));
+                response.setErrorCode("MODEL_EMPTY".equals(intent.getParseStatus()) ? "AGENT_LLM_EMPTY_INTENT" : "AGENT_REQUEST_INVALID");
+                response.setAnswer("MODEL_EMPTY".equals(intent.getParseStatus())
+                        ? "我暂时没能从这条消息中提取出明确的查店条件，请补充品类、区域、预算或距离。"
+                        : "请告诉我想找什么店，例如：拱墅区人均100元以内的日料，或附近3公里的火锅店。");
+                persist(conversationId, request.getMessage(), intent, response.getAnswer(), calls);
+                log.info("agent_request traceId={} conversationId={} intent={} parseStatus={} tools=[] latencyMs={}", response.getTraceId(), conversationId, "CLARIFY", intent.getParseStatus(), System.currentTimeMillis() - started);
+                return response;
+            }
+            // Coordinates alone are only user context. Use GEO only when the
+            // request explicitly contains a radius/nearby constraint.
             List<Shop> candidates = intent.getLatitude() != null && intent.getLongitude() != null
+                    && intent.getRadiusMeter() != null
                     ? callNearby(intent, context, calls) : callSearch(intent, context, calls);
             List<AgentModels.ShopCard> cards = ranking.rank(candidates, intent);
             enrich(cards, intent, context, calls);
@@ -100,6 +127,12 @@ public class AgentOrchestrator {
     }
 
     private List<Shop> callSearch(AgentModels.Intent intent, AgentContext context, List<String> calls) { return toolCall(shopSearchTool.name(), () -> shopSearchTool.execute(intent, context), calls); }
+    public static boolean hasSearchConstraint(AgentModels.Intent intent) {
+        return StrUtil.isNotBlank(intent.getKeyword()) || StrUtil.isNotBlank(intent.getLocation())
+                || intent.getRadiusMeter() != null || intent.getBudgetMax() != null || intent.getMinScore() != null
+                || StrUtil.isNotBlank(intent.getOpenAt()) || StrUtil.isNotBlank(intent.getScene())
+                || Boolean.TRUE.equals(intent.getNeedVoucher());
+    }
     private List<Shop> callNearby(AgentModels.Intent intent, AgentContext context, List<String> calls) { return toolCall(nearbyShopTool.name(), () -> nearbyShopTool.execute(intent, context), calls); }
     private List<Shop> toolCall(String name, java.util.function.Supplier<List<Shop>> action, List<String> calls) { calls.add(name); Timer.Sample timer = Timer.start(meterRegistry); try { return action.get(); } finally { timer.stop(Timer.builder("agent.tool.latency").tag("tool", name).register(meterRegistry)); } }
     private void enrich(List<AgentModels.ShopCard> cards, AgentModels.Intent intent, AgentContext context, List<String> calls) {
@@ -115,6 +148,10 @@ public class AgentOrchestrator {
     }
     private AgentModels.ChatResponse fallback(AgentModels.ChatRequest request, AgentModels.ChatResponse response, AgentContext context) {
         AgentModels.Intent intent = intentNormalizer.normalize(RuleBasedIntentParser.parseText(request.getMessage()));
+        if (!hasSearchConstraint(intent)) {
+            response.setFilters(filters(intent)); response.setFallback(true); response.setErrorCode("AGENT_FALLBACK");
+            response.setAnswer("请告诉我想找什么店，例如：附近3公里的火锅店或人均100元以内的日料。"); return response;
+        }
         List<AgentModels.ShopCard> cards;
         try { cards = ranking.rank(shopSearchTool.execute(intent, context), intent); } catch (Exception ignored) { cards = List.of(); }
         response.setCards(cards); response.setFilters(filters(intent)); response.setFallback(true); response.setErrorCode("AGENT_FALLBACK");

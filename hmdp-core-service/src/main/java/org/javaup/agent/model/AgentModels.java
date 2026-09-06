@@ -32,6 +32,8 @@ public final class AgentModels {
     @Data
     public static class Intent {
         private String intent = "SHOP_RECOMMENDATION";
+        /** Internal parser outcome; never treated as a user-facing model instruction. */
+        private String parseStatus;
         private String keyword;
         private String location;
         @DecimalMin(value = "-90.0") @DecimalMax(value = "90.0")

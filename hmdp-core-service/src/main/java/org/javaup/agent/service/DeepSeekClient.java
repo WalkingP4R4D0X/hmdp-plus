@@ -2,10 +2,12 @@ package org.javaup.agent.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonGenerator;
 import jakarta.annotation.Resource;
 import org.javaup.agent.model.AgentModels;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import lombok.extern.slf4j.Slf4j;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,9 +20,11 @@ import java.util.List;
 import java.util.Map;
 
 /** Minimal OpenAI-compatible DeepSeek client used only for structured intent parsing. */
+@Slf4j
 @Component
 public class DeepSeekClient {
     private final ObjectMapper objectMapper;
+    private final ObjectMapper llmObjectMapper;
     private final HttpClient httpClient;
     private final String baseUrl;
     private final String apiKey;
@@ -34,6 +38,7 @@ public class DeepSeekClient {
             @Value("${agent.llm.model:deepseek-chat}") String model,
             @Value("${agent.llm.read-timeout:8s}") Duration requestTimeout) {
         this.objectMapper = objectMapper;
+        this.llmObjectMapper = objectMapper.copy().disable(JsonGenerator.Feature.WRITE_NUMBERS_AS_STRINGS);
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
         this.model = model;
@@ -47,9 +52,11 @@ public class DeepSeekClient {
 
     public AgentModels.Intent parseIntent(String message, List<AgentModels.Message> history) {
         if (!isConfigured()) {
+            log.info("agent_llm_intent_skipped reason=api_key_not_configured");
             return null;
         }
         try {
+            log.info("agent_llm_intent_start model={} messageLength={} historySize={}", model, message.length(), history == null ? 0 : history.size());
             Map<String, Object> body = new HashMap<>();
             body.put("model", model);
             body.put("temperature", 0);
@@ -71,21 +78,29 @@ public class DeepSeekClient {
                     .timeout(requestTimeout)
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                    .POST(HttpRequest.BodyPublishers.ofString(llmObjectMapper.writeValueAsString(body)))
                     .build();
-            return parseIntentJson(send(request));
+            AgentModels.Intent intent = parseIntentJson(send(request));
+            log.info("agent_llm_intent_success model={} intent={}", model, intent.getIntent());
+            return intent;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("DeepSeek request interrupted", e);
         } catch (Exception e) {
-            throw new IllegalStateException("DeepSeek request failed", e);
+            log.warn("agent_llm_intent_failed model={} reason={}", model, e.getMessage());
+            throw new IllegalStateException("DeepSeek request failed: " + e.getMessage(), e);
         }
     }
 
     /** Generate prose only from the already validated business result. */
     public String explain(AgentModels.Intent intent, List<AgentModels.ShopCard> cards) {
-        if (!isConfigured() || cards == null || cards.isEmpty()) return null;
+        if (!isConfigured()) {
+            log.info("agent_llm_explain_skipped reason=api_key_not_configured");
+            return null;
+        }
+        if (cards == null || cards.isEmpty()) return null;
         try {
+            log.info("agent_llm_explain_start model={} cards={}", model, cards.size());
             Map<String, Object> payload = Map.of("filters", intent, "shops", cards);
             Map<String, Object> body = new HashMap<>();
             body.put("model", model);
@@ -93,17 +108,19 @@ public class DeepSeekClient {
             body.put("max_tokens", 500);
             body.put("messages", List.of(
                     Map.of("role", "system", "content", "你是黑马点评导购助手。只能依据给定的已核验商户数据回答，不能修改或补造价格、距离、评分、营业状态或优惠券信息。用简洁中文说明推荐理由，不要输出 JSON。"),
-                    Map.of("role", "user", "content", "用户筛选条件和商户结果如下：" + objectMapper.writeValueAsString(payload))));
+                    Map.of("role", "user", "content", "用户筛选条件和商户结果如下：" + llmObjectMapper.writeValueAsString(payload))));
             HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint()))
                     .timeout(requestTimeout).header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body))).build();
+                    .POST(HttpRequest.BodyPublishers.ofString(llmObjectMapper.writeValueAsString(body))).build();
             String answer = send(request);
+            log.info("agent_llm_explain_success model={} cards={}", model, cards.size());
             return answer == null ? null : answer.trim();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return null;
         } catch (Exception e) {
+            log.warn("agent_llm_explain_failed model={} reason={}", model, e.getMessage());
             return null;
         }
     }
@@ -111,12 +128,23 @@ public class DeepSeekClient {
     private String send(HttpRequest request) throws Exception {
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IllegalStateException("DeepSeek returned HTTP " + response.statusCode());
+            String body = diagnosticBody(response.body());
+            String contentType = response.headers().firstValue("Content-Type").orElse("unknown");
+            log.warn("agent_llm_http_error status={} contentType={} body={}", response.statusCode(), contentType, body);
+            throw new IllegalStateException("DeepSeek returned HTTP " + response.statusCode()
+                    + " contentType=" + contentType + " body=" + body);
         }
         JsonNode root = objectMapper.readTree(response.body());
         String content = root.path("choices").path(0).path("message").path("content").asText(null);
         if (content == null || content.isBlank()) throw new IllegalStateException("DeepSeek response has no message content");
         return content;
+    }
+
+    private String diagnosticBody(String body) {
+        if (body == null || body.isBlank()) return "<empty>";
+        String value = body.replaceAll("[\\r\\n\\t]+", " ").trim();
+        if (apiKey != null && !apiKey.isBlank()) value = value.replace(apiKey, "<redacted>");
+        return value.length() <= 2000 ? value : value.substring(0, 2000) + "...";
     }
 
     public static AgentModels.Intent parseIntentJson(String content) throws Exception {
