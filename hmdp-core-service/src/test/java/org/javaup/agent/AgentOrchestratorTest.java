@@ -7,12 +7,21 @@ import org.javaup.entity.Shop;
 import org.javaup.entity.Voucher;
 import org.javaup.service.impl.VoucherServiceImpl;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.geo.Distance;
+import org.springframework.data.geo.Metrics;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 class AgentOrchestratorTest {
+    @Test
+    void radiusIsInterpretedAsMetersForGeoQueries() {
+        Distance radius = new Distance(3000d / 1000d, Metrics.KILOMETERS);
+        assertEquals(3d, radius.getValue(), 0.0001d);
+        assertEquals(Metrics.KILOMETERS, radius.getMetric());
+    }
+
     @Test
     void rankingFiltersBudgetAndBuildsEvidence() {
         Shop ok = new Shop().setId(1L).setName("日料店").setAvgPrice(80L).setScore(45).setOpenHours("10:00-22:00");

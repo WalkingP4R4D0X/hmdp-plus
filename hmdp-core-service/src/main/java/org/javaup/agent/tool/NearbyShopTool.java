@@ -9,6 +9,7 @@ import org.javaup.service.IShopService;
 import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.GeoResult;
 import org.springframework.data.geo.GeoResults;
+import org.springframework.data.geo.Metrics;
 import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.domain.geo.GeoReference;
@@ -49,7 +50,8 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
             GeoResults<RedisGeoCommands.GeoLocation<String>> results = redis.opsForGeo().search(
                     SHOP_GEO_KEY + typeId,
                     GeoReference.fromCoordinate(input.getLongitude(), input.getLatitude()),
-                    new Distance(input.getRadiusMeter()),
+                    // The intent radius is stored in meters; Redis GEO receives the equivalent kilometer value.
+                    new Distance(input.getRadiusMeter() / 1000d, Metrics.KILOMETERS),
                     RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs().includeDistance().limit(10));
             if (results == null) {
                 continue;
