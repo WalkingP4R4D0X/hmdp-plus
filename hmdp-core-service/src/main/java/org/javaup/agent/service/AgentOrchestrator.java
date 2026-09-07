@@ -8,6 +8,7 @@ import org.javaup.agent.model.AgentContext;
 import org.javaup.agent.model.AgentModels;
 import org.javaup.agent.ranking.ShopRankingService;
 import org.javaup.agent.tool.NearbyShopTool;
+import org.javaup.agent.tool.NearbySearchResult;
 import org.javaup.agent.tool.NearbyShopQueryException;
 import org.javaup.agent.tool.ShopContentTool;
 import org.javaup.agent.tool.ShopSearchTool;
@@ -85,18 +86,24 @@ public class AgentOrchestrator {
             }
             // Coordinates alone are only user context. Use GEO only when the
             // request explicitly contains a radius/nearby constraint.
-            List<Shop> candidates = intent.getLatitude() != null && intent.getLongitude() != null
-                    && intent.getRadiusMeter() != null
-                    ? callNearby(intent, context, calls) : callSearch(intent, context, calls);
+            if (intent.getRadiusMeter() != null) {
+                NearbySearchResult nearby = callNearby(intent, context, calls);
+                if (nearby.status() != NearbySearchResult.Status.SUCCESS) {
+                    response.setCards(List.of());
+                    response.setFilters(filters(intent));
+                    applyNearbyStatus(response, nearby.status());
+                    persist(conversationId, request.getMessage(), intent, response.getAnswer(), calls);
+                    log.info("agent_nearby_result traceId={} conversationId={} status={} geoCandidates={}",
+                            response.getTraceId(), conversationId, nearby.status(), nearby.geoCandidateCount());
+                    return response;
+                }
+                List<Shop> candidates = nearby.shops();
+                List<AgentModels.ShopCard> cards = ranking.rank(candidates, intent);
+                return buildRecommendationResponse(request, response, context, conversationId, intent, cards, calls, started);
+            }
+            List<Shop> candidates = callSearch(intent, context, calls);
             List<AgentModels.ShopCard> cards = ranking.rank(candidates, intent);
-            enrich(cards, intent, context, calls);
-            response.setCards(cards); response.setFilters(filters(intent));
-            String generatedAnswer = deepSeekClient.explain(intent, cards);
-            response.setAnswer(StrUtil.isBlank(generatedAnswer) ? answer(cards) : generatedAnswer);
-            if (cards.isEmpty()) meterRegistry.counter("agent.no_result.total").increment();
-            persist(conversationId, request.getMessage(), intent, response.getAnswer(), calls);
-            log.info("agent_request traceId={} conversationId={} tools={} cards={} latencyMs={}", response.getTraceId(), conversationId, calls, cards.size(), System.currentTimeMillis() - started);
-            return response;
+            return buildRecommendationResponse(request, response, context, conversationId, intent, cards, calls, started);
         } catch (Exception e) {
             logAgentFailure(response.getTraceId(), conversationId, e);
             if (Thread.currentThread().isInterrupted()) {
@@ -155,7 +162,40 @@ public class AgentOrchestrator {
                 || StrUtil.isNotBlank(intent.getOpenAt()) || StrUtil.isNotBlank(intent.getScene())
                 || Boolean.TRUE.equals(intent.getNeedVoucher());
     }
-    private List<Shop> callNearby(AgentModels.Intent intent, AgentContext context, List<String> calls) { return toolCall(nearbyShopTool.name(), () -> nearbyShopTool.execute(intent, context), calls); }
+    private NearbySearchResult callNearby(AgentModels.Intent intent, AgentContext context, List<String> calls) {
+        calls.add(nearbyShopTool.name());
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try { return nearbyShopTool.executeDetailed(intent, context); }
+        finally { sample.stop(Timer.builder("agent.tool.latency").tag("tool", nearbyShopTool.name()).register(meterRegistry)); }
+    }
+
+    private AgentModels.ChatResponse buildRecommendationResponse(AgentModels.ChatRequest request,
+                                                                  AgentModels.ChatResponse response,
+                                                                  AgentContext context,
+                                                                  String conversationId,
+                                                                  AgentModels.Intent intent,
+                                                                  List<AgentModels.ShopCard> cards,
+                                                                  List<String> calls,
+                                                                  long started) {
+        enrich(cards, intent, context, calls);
+        response.setCards(cards); response.setFilters(filters(intent));
+        String generatedAnswer = deepSeekClient.explain(intent, cards);
+        response.setAnswer(StrUtil.isBlank(generatedAnswer) ? answer(cards) : generatedAnswer);
+        if (cards.isEmpty()) meterRegistry.counter("agent.no_result.total").increment();
+        persist(conversationId, request.getMessage(), intent, response.getAnswer(), calls);
+        log.info("agent_request traceId={} conversationId={} tools={} cards={} latencyMs={}", response.getTraceId(), conversationId, calls, cards.size(), System.currentTimeMillis() - started);
+        return response;
+    }
+
+    private void applyNearbyStatus(AgentModels.ChatResponse response, NearbySearchResult.Status status) {
+        switch (status) {
+            case NO_LOCATION -> { response.setErrorCode("AGENT_NO_LOCATION"); response.setAnswer("请先允许定位，或告诉我所在区域，我再帮你查附近商户。"); }
+            case INDEX_EMPTY -> { response.setErrorCode("AGENT_GEO_INDEX_EMPTY"); response.setAnswer("附近商户索引正在准备中，请稍后重试。"); }
+            case REDIS_UNAVAILABLE -> { response.setErrorCode("AGENT_GEO_UNAVAILABLE"); response.setAnswer("附近检索暂时不可用，请稍后重试或输入所在区域。"); }
+            case NO_MATCH -> { response.setErrorCode("AGENT_NO_RESULT"); response.setAnswer("暂时没有找到符合条件的附近商户，要不要扩大范围？"); }
+            default -> { response.setErrorCode(null); response.setAnswer(null); }
+        }
+    }
     private List<Shop> toolCall(String name, java.util.function.Supplier<List<Shop>> action, List<String> calls) { calls.add(name); Timer.Sample timer = Timer.start(meterRegistry); try { return action.get(); } finally { timer.stop(Timer.builder("agent.tool.latency").tag("tool", name).register(meterRegistry)); } }
     private void enrich(List<AgentModels.ShopCard> cards, AgentModels.Intent intent, AgentContext context, List<String> calls) {
         for (AgentModels.ShopCard card : cards) {

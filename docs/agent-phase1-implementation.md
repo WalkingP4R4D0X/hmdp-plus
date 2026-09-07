@@ -223,8 +223,12 @@ return responseFactory.build(answer, cards, normalized, trace);
 
 - 从请求上下文或用户定位获得经纬度；不接受模型伪造的用户位置。
 - Redis GEO 查询候选 ID，再批量从 MySQL 查询详情。
+- Redis 返回距离统一在工具边界转换为米；`radiusMeter`、`Shop.distance` 和卡片 `distanceMeter` 均使用米。
 - 计算距离并在 Java 层再次过滤半径。
 - 无定位时返回可追问状态或降级为区域/关键词搜索。
+- GEO 查询结果区分 `NO_LOCATION`、`INDEX_EMPTY`、`REDIS_UNAVAILABLE` 和 `NO_MATCH`，不得将基础设施故障伪装成无结果。
+
+GEO 索引由正式的 `ShopGeoIndexService` 在应用就绪后从 MySQL 全量重建；测试类不再承担生产索引初始化职责。重建失败时索引标记为不可用，附近查询返回明确错误状态。
 
 ### 6.3 `getShopDetail`
 
@@ -359,6 +363,7 @@ agent:
 - [ ] 排序权重、缺失字段和推荐理由证据测试。
 - [ ] Redis 会话 TTL、摘要、删除和并发覆盖测试。
 - [ ] Testcontainers 验证 MySQL、Redis GEO 和 Kafka 配置。
+- [x] 增加 GEO 距离单位转换、索引状态和应用就绪后的正式索引加载；真实 Redis/GEO 集成测试需在允许 loopback 且服务依赖已启动的环境执行。
 - [ ] WireMock 模拟模型成功、超时、限流、非法 JSON 和工具调用。
 - [x] 增加 SSE 停止/幂等协议、Intent 归一化和模型 HTTP 合约测试；真实 Redis/GEO 集成测试需在允许 loopback 且服务依赖已启动的环境执行。
 - [ ] 越权访问、评论注入、敏感字段脱敏和请求限流测试。

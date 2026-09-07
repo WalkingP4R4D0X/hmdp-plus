@@ -224,6 +224,10 @@ event: error
 
 ## 10. 排序与真实性校验
 
+`searchNearbyShops` 使用结构化状态区分 `NO_LOCATION`、`INDEX_EMPTY`、`REDIS_UNAVAILABLE` 和 `NO_MATCH`，避免将定位缺失、索引故障和真实无结果混为一谈。Redis 返回距离在工具边界统一转换为米，`radiusMeter`、商户距离和卡片距离字段均使用米。
+
+正式组件 `ShopGeoIndexService` 在应用就绪后以 MySQL 为权威来源重建 `shop:geo:{typeId}`。测试代码不负责生产索引加载。
+
 排序由代码完成，模型只解释：
 
 ```text

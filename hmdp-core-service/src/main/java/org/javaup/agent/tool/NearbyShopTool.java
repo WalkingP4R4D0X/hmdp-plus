@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import jakarta.annotation.Resource;
 import org.javaup.agent.model.AgentContext;
 import org.javaup.agent.model.AgentModels;
+import org.javaup.agent.service.ShopGeoIndexService;
 import org.javaup.entity.Shop;
 import org.javaup.service.IShopService;
 import org.springframework.data.geo.Distance;
@@ -34,6 +35,8 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
     private StringRedisTemplate redis;
     @Resource
     private IShopService shopService;
+    @Resource
+    private ShopGeoIndexService geoIndexService;
 
     @Override
     public String name() {
@@ -42,25 +45,55 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
 
     @Override
     public List<Shop> execute(AgentModels.Intent input, AgentContext context) {
+        return executeDetailed(input, context).shops();
+    }
+
+    public NearbySearchResult executeDetailed(AgentModels.Intent input, AgentContext context) {
         if (input.getLatitude() == null || input.getLongitude() == null || input.getRadiusMeter() == null) {
-            return List.of();
+            return NearbySearchResult.empty(NearbySearchResult.Status.NO_LOCATION);
         }
+        if (geoIndexService.getState() == ShopGeoIndexService.IndexState.NOT_READY) {
+            return NearbySearchResult.empty(NearbySearchResult.Status.INDEX_EMPTY);
+        }
+        if (geoIndexService.getState() == ShopGeoIndexService.IndexState.UNAVAILABLE) {
+            return NearbySearchResult.empty(NearbySearchResult.Status.REDIS_UNAVAILABLE);
+        }
+        try {
+            return search(input);
+        } catch (RuntimeException e) {
+            return NearbySearchResult.empty(NearbySearchResult.Status.REDIS_UNAVAILABLE);
+        }
+    }
+
+    private NearbySearchResult search(AgentModels.Intent input) {
         Map<Long, Double> distances = new HashMap<>();
+        boolean indexFound = false;
         for (long typeId : geoTypeIds(input)) {
+            String key = SHOP_GEO_KEY + typeId;
+            if (!Boolean.TRUE.equals(redis.hasKey(key))) {
+                continue;
+            }
+            indexFound = true;
             GeoResults<RedisGeoCommands.GeoLocation<String>> results = geoSearch(typeId, input);
             if (results == null) {
                 continue;
             }
             parseGeoResults(results, distances);
         }
+        if (!indexFound) {
+            return NearbySearchResult.empty(NearbySearchResult.Status.INDEX_EMPTY);
+        }
         if (distances.isEmpty()) {
-            return List.of();
+            return NearbySearchResult.empty(NearbySearchResult.Status.NO_MATCH);
         }
         List<Shop> shops = lookupShops(distances).stream()
                 .filter(shop -> matchesKeywordAndLocation(shop, input))
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         shops.forEach(shop -> shop.setDistance(distances.get(shop.getId())));
-        return sortByDistance(shops);
+        List<Shop> sorted = sortByDistance(shops);
+        return sorted.isEmpty()
+                ? NearbySearchResult.empty(NearbySearchResult.Status.NO_MATCH)
+                : NearbySearchResult.success(sorted, distances.size());
     }
 
     private GeoResults<RedisGeoCommands.GeoLocation<String>> geoSearch(long typeId, AgentModels.Intent input) {
@@ -80,7 +113,7 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
         try {
             for (GeoResult<RedisGeoCommands.GeoLocation<String>> result : results) {
                 try {
-                    distances.put(Long.valueOf(result.getContent().getName()), result.getDistance().getValue());
+                    distances.put(Long.valueOf(result.getContent().getName()), distanceInMeters(result.getDistance()));
                 } catch (NumberFormatException ignored) {
                     // Ignore malformed GEO members instead of trusting them as shop identifiers.
                 }
@@ -88,6 +121,10 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
         } catch (RuntimeException e) {
             throw new NearbyShopQueryException(NearbyShopQueryException.Stage.GEO_RESULT_PARSE, e);
         }
+    }
+
+    static double distanceInMeters(Distance distance) {
+        return distance.getValue() * 1000D;
     }
 
     private List<Shop> lookupShops(Map<Long, Double> distances) {
