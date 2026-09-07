@@ -5,10 +5,12 @@ import org.javaup.agent.model.AgentContext;
 import org.javaup.entity.Blog;
 import org.javaup.service.IBlogService;
 import org.springframework.stereotype.Component;
+import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
 
 @Component
+@Validated
 public class ShopContentTool implements AgentTool<Long, List<String>> {
     @Resource
     private IBlogService blogService;
@@ -20,6 +22,7 @@ public class ShopContentTool implements AgentTool<Long, List<String>> {
 
     @Override
     public List<String> execute(Long shopId, AgentContext context) {
+        AgentTool.requireShopId(shopId);
         return blogService.lambdaQuery().eq(Blog::getShopId, shopId).orderByDesc(Blog::getLiked)
                 .last("LIMIT 3").list().stream()
                 .map(blog -> truncate(blog.getTitle() + " " + blog.getContent()))

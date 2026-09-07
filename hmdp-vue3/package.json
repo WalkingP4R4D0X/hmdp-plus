@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test src/utils/agentStream.test.js",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
@@ -15,7 +16,6 @@
     "@element-plus/icons-vue": "^2.3.1",
     "axios": "^1.8.4",
     "element-plus": "^2.9.7",
-    "hmdp-vue3": "file:",
     "json-bigint": "^1.0.0",
     "pinia": "^3.0.1",
     "vue": "^3.5.13",

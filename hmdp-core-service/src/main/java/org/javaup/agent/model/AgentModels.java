@@ -7,6 +7,9 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.AssertTrue;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -18,15 +21,24 @@ public final class AgentModels {
 
     @Data
     public static class ChatRequest {
+        @Pattern(regexp = "[A-Za-z0-9_-]{1,80}")
         private String conversationId;
         @NotBlank @Size(min = 1, max = 500)
         private String message;
-        private Boolean stream;
+        @Pattern(regexp = "[A-Za-z0-9_-]{1,80}")
         private String clientRequestId;
         @DecimalMin(value = "-90.0") @DecimalMax(value = "90.0")
         private Double latitude;
         @DecimalMin(value = "-180.0") @DecimalMax(value = "180.0")
         private Double longitude;
+
+        @AssertTrue(message = "latitude and longitude must be a finite coordinate pair")
+        @JsonIgnore
+        public boolean isLocationValid() {
+            return latitude == null && longitude == null
+                    || latitude != null && longitude != null && Double.isFinite(latitude) && Double.isFinite(longitude)
+                    && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
+        }
     }
 
     @Data
@@ -89,7 +101,7 @@ public final class AgentModels {
         private String answer;
         private List<ShopCard> cards = new ArrayList<>();
         private Map<String, Object> filters = new LinkedHashMap<>();
-        private Object pendingAction;
+        private boolean memorySaved;
         private boolean fallback;
         private String traceId;
         private String errorCode;

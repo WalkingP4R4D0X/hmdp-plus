@@ -1,6 +1,7 @@
 package org.javaup.agent.tool;
 
 import org.javaup.agent.model.AgentModels;
+import org.javaup.agent.model.ShopCandidate;
 import org.javaup.agent.service.ShopGeoIndexService;
 import org.javaup.entity.Shop;
 import org.junit.jupiter.api.Test;
@@ -19,9 +20,10 @@ class NearbyShopToolTest {
                 new Shop().setId(1L).setDistance(1200d),
                 new Shop().setId(2L).setDistance(300d));
 
-        List<Shop> sorted = NearbyShopTool.sortByDistance(candidates);
+        List<ShopCandidate> sorted = NearbyShopTool.sortByDistance(candidates.stream()
+                .map(ShopCandidate::from).toList());
 
-        assertEquals(List.of(2L, 1L), sorted.stream().map(Shop::getId).toList());
+        assertEquals(List.of(2L, 1L), sorted.stream().map(ShopCandidate::getId).toList());
     }
 
     @Test

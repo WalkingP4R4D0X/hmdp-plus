@@ -1,6 +1,7 @@
 package org.javaup.agent.tool;
 
 import org.javaup.agent.model.AgentModels;
+import org.javaup.agent.model.ShopCandidate;
 import org.javaup.agent.service.IntentNormalizer;
 import org.javaup.agent.service.ShopGeoIndexService;
 import org.javaup.entity.Shop;
@@ -76,7 +77,7 @@ class NearbyShopRedisGeoIntegrationTest {
 
         assertEquals("火锅", intent.getKeyword());
         assertEquals(NearbySearchResult.Status.SUCCESS, result.status());
-        assertEquals(List.of(5L), result.shops().stream().map(Shop::getId).toList());
+        assertEquals(List.of(5L), result.shops().stream().map(ShopCandidate::getId).toList());
         assertTrue(result.shops().get(0).getDistance() > 1000D);
         assertTrue(result.shops().get(0).getDistance() < 1500D);
     }

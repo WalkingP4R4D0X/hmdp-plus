@@ -1,94 +1,63 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { streamAgent, stopAgent } from '@/api/agent'
+import {
+  createAssistant, createAgentRunner, locateAgent, filterLabels,
+  errorMessage, fieldText, businessStatus, voucherMoney
+} from '@/utils/agentStream'
 
 const router = useRouter()
 const input = ref('')
 const messages = ref([
-  {
-    role: 'assistant',
-    content: '你好，我是黑马点评智能导购。告诉我你想找什么店？',
-    cards: []
-  }
+  { role: 'assistant', content: '你好，我是黑马点评智能导购。告诉我你想找什么店？', cards: [] }
 ])
 const loading = ref(false)
-const controller = ref(null)
 const conversationId = ref(null)
-const activeRequestId = ref(null)
-const quick = [
-  '附近有什么好吃的',
-  '拱墅区人均100以内适合约会的餐厅',
-  '找3公里内晚上9点还营业的火锅店'
-]
+const location = ref(null)
+const locating = ref(false)
+const inputError = ref('')
+const quick = ['附近有什么好吃的', '拱墅区人均100以内适合约会的餐厅', '找3公里内晚上9点还营业的火锅店']
+const runner = createAgentRunner({
+  stream: streamAgent,
+  stop: stopAgent,
+  onLoading: value => { loading.value = value },
+  onConversation: value => { conversationId.value = value }
+})
 
 async function send(text = input.value) {
-  if (!text?.trim() || loading.value) return
+  if (loading.value || !text?.trim()) return
+  text = text.trim()
+  if (text.length > 500) {
+    inputError.value = '请输入 1–500 字的查店需求。'
+    return
+  }
+  inputError.value = ''
   input.value = ''
   messages.value.push({ role: 'user', content: text })
-  const assistant = {
-    role: 'assistant',
-    content: '',
-    cards: [],
-    fallback: false
-  }
+  // Mutate the proxy itself so incoming deltas and cards trigger Vue updates.
+  const assistant = reactive(createAssistant())
   messages.value.push(assistant)
-  loading.value = true
-  controller.value = new AbortController()
-  try {
-    activeRequestId.value = crypto.randomUUID()
-    const response = await streamAgent(
-      {
-        conversationId: conversationId.value,
-        message: text,
-        stream: true,
-        clientRequestId: activeRequestId.value
-      },
-      controller.value.signal
-    )
-    if (!response.ok) throw new Error('request failed')
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() || ''
-      for (const chunk of chunks) {
-        const event = chunk.match(/^event: (.+)$/m)?.[1]
-        const data = chunk.match(/^data: (.+)$/m)?.[1]
-        if (!data) continue
-        let parsed
-        try {
-          parsed = JSON.parse(data)
-        } catch {
-          parsed = data
-        }
-        if (event === 'shop_card') assistant.cards.push(parsed)
-        if (event === 'text_delta') assistant.content += parsed
-        if (event === 'fallback') assistant.fallback = true
-        if (event === 'done' && parsed?.conversationId)
-          conversationId.value = parsed.conversationId
-        await nextTick()
-      }
-    }
-  } catch (e) {
-    if (e.name !== 'AbortError')
-      assistant.content = '暂时无法连接智能导购，请稍后重试。'
-  } finally {
-    loading.value = false
-    controller.value = null
-  }
+  await runner.run(assistant, {
+    conversationId: conversationId.value,
+    message: text,
+    clientRequestId: crypto.randomUUID(),
+    ...(location.value || {})
+  })
 }
+async function locate() {
+  if (locating.value) return
+  locating.value = true
+  location.value = await locateAgent(navigator.geolocation)
+  locating.value = false
+}
+onMounted(locate)
+onBeforeUnmount(() => runner.cancel())
 function stop() {
-  controller.value?.abort()
-  if (activeRequestId.value) stopAgent(activeRequestId.value).catch(() => {})
-  loading.value = false
+  runner.cancel()
 }
 function openShop(card) {
-  router.push(`/shopDetail/${card.shopId}`)
+  if (card.shopId != null) router.push(`/shopDetail/${card.shopId}`)
 }
 </script>
 
@@ -103,64 +72,85 @@ function openShop(card) {
       <button class="ghost" @click="router.push('/index')">返回首页</button>
     </header>
     <section class="chat-shell">
-      <div class="messages">
+      <div class="location-status" role="status">
+        <span>{{ locating ? '正在获取定位…' : location ? '已获取真实定位，可查询附近商户。' : '未获取定位：请允许定位，或输入所在区域、按关键词搜索。' }}</span>
+        <button class="ghost" :disabled="locating" @click="locate">重新定位</button>
+      </div>
+      <div class="messages" aria-live="polite" aria-relevant="additions text">
         <article
           v-for="(message, index) in messages"
           :key="index"
           :class="['message', message.role]"
         >
-          <div class="bubble">
+          <div v-if="message.content || message.phase === 'loading'" class="bubble">
             {{
               message.content ||
-              (loading && index === messages.length - 1
+              (message.phase === 'loading'
                 ? '正在查询真实商户…'
                 : '')
             }}
           </div>
+          <div v-if="message.filters && filterLabels(message.filters).length" class="filters">
+            <strong>已生效筛选条件</strong>
+            <span v-for="label in filterLabels(message.filters)" :key="label">{{ label }}</span>
+          </div>
           <div v-if="message.fallback" class="fallback">
             智能推荐暂时不可用，已切换到普通搜索
           </div>
+          <p v-if="message.memorySaved === false" class="notice">上下文未保存，下次提问请补充完整筛选条件。</p>
+          <p v-if="message.phase === 'error'" class="error" role="alert">{{ errorMessage(message.errorCode) }}</p>
+          <p v-if="message.phase === 'stopped'" class="notice">已停止生成，以上为停止前收到的内容。</p>
+          <p v-if="message.noResult" class="notice">没有符合条件的商户。可以扩大距离、提高预算或放宽营业时间后重试。</p>
           <div v-if="message.cards?.length" class="cards">
             <div
               v-for="card in message.cards"
-              :key="card.shopId"
+              :key="card.shopId ?? card.name"
               class="card"
+              :role="card.shopId != null ? 'link' : undefined"
+              :tabindex="card.shopId != null ? 0 : undefined"
               @click="openShop(card)"
+              @keydown.enter.prevent="openShop(card)"
             >
               <div class="card-top">
-                <strong>{{ card.name }}</strong
-                ><span>{{ card.score ? `${card.score} 分` : '暂无评分' }}</span>
+                <strong>{{ fieldText(card.name) }}</strong
+                ><span>评分：{{ fieldText(card.score, ' 分') }}</span>
               </div>
-              <p>{{ card.area || card.address || '商户详情' }}</p>
+              <p>地址：{{ fieldText(card.address) }}<template v-if="card.area"> · {{ card.area }}</template></p>
               <p class="meta">
-                {{
-                  card.averagePrice
-                    ? `人均 ${card.averagePrice} 元`
-                    : '价格待更新'
-                }}
-                ·
-                {{
-                  card.distanceMeter
-                    ? `${Math.round(card.distanceMeter)} 米`
-                    : '距离待定'
-                }}
-                · {{ card.openNow ? '营业中' : '营业状态待确认' }}
+                人均：{{ fieldText(card.averagePrice, ' 元') }} ·
+                距离：{{ fieldText(card.distanceMeter == null ? null : Math.round(card.distanceMeter), ' 米') }} ·
+                {{ businessStatus(card.openNow) }}
               </p>
-              <small>{{ card.reason }}</small>
+              <p class="meta">营业时间：{{ fieldText(card.openHours) }}</p>
+              <p v-if="card.missingData || card.shopId == null" class="notice">部分商户信息缺失，请在详情页确认。</p>
+              <div class="vouchers">
+                <strong>优惠券</strong>
+                <p v-if="!Array.isArray(card.vouchers)">优惠券信息缺失</p>
+                <p v-else-if="!card.vouchers.length">本次查询未返回优惠券</p>
+                <div v-for="(voucher, voucherIndex) in card.vouchers" :key="voucher.voucherId ?? voucherIndex" class="voucher">
+                  <p>{{ fieldText(voucher.title) }} · 付 {{ voucherMoney(voucher.payValue) }} 抵 {{ voucherMoney(voucher.actualValue) }}</p>
+                  <p class="meta">{{ voucher.valid === true ? '有效' : voucher.valid === false ? '无效' : '有效状态：信息缺失' }} · {{ voucher.needSeckill === true ? '秒杀券' : voucher.needSeckill === false ? '普通券' : '券类型：信息缺失' }}</p>
+                  <p class="meta">使用规则：{{ fieldText(voucher.rules) }}</p>
+                  <p class="meta">有效期：{{ fieldText(voucher.beginTime) }} 至 {{ fieldText(voucher.endTime) }}</p>
+                </div>
+              </div>
+              <small>推荐理由：{{ fieldText(card.reason) }}</small>
             </div>
           </div>
         </article>
       </div>
       <div class="quick">
-        <button v-for="item in quick" :key="item" @click="send(item)">
+        <button v-for="item in quick" :key="item" :disabled="loading" @click="send(item)">
           {{ item }}
         </button>
       </div>
+      <p v-if="inputError" class="input-error error" role="alert">{{ inputError }}</p>
       <div class="composer">
         <textarea
           v-model="input"
+          aria-label="查店需求"
           placeholder="例如：西湖区适合约会、人均150以内的日料"
-          @keydown.enter.exact.prevent="send()"
+          @keydown.enter.exact="event => { if (!event.isComposing) { event.preventDefault(); send() } }"
         /><button v-if="loading" class="stop" @click="stop">停止</button
         ><button v-else class="send" @click="send()">发送</button>
       </div>
@@ -285,6 +275,42 @@ header p {
   color: #b35e3b;
   margin-top: 8px;
 }
+.location-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 22px;
+  border-bottom: 1px solid #e3dfd5;
+  font-size: 13px;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.filters span {
+  background: #eef0e9;
+  border-radius: 8px;
+  padding: 3px 7px;
+}
+.notice, .error {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.notice { color: #687067; }
+.error { color: #a43826; }
+.input-error { padding: 0 22px; }
+.vouchers {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #ddd9cf;
+  font-size: 13px;
+}
+.voucher + .voucher { margin-top: 10px; }
+button:disabled { opacity: 0.6; cursor: not-allowed; }
 .quick {
   display: flex;
   gap: 8px;

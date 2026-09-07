@@ -2,8 +2,11 @@ package org.javaup.agent.tool;
 
 import cn.hutool.core.util.StrUtil;
 import jakarta.annotation.Resource;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import org.javaup.agent.model.AgentContext;
 import org.javaup.agent.model.AgentModels;
+import org.javaup.agent.model.ShopCandidate;
 import org.javaup.agent.service.ShopGeoIndexService;
 import org.javaup.agent.service.KeywordNormalizer;
 import org.javaup.entity.Shop;
@@ -16,6 +19,7 @@ import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.domain.geo.GeoReference;
 import org.springframework.stereotype.Component;
+import org.springframework.validation.annotation.Validated;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -28,7 +32,8 @@ import java.util.LinkedHashSet;
 import static org.javaup.utils.RedisConstants.SHOP_GEO_KEY;
 
 @Component
-public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>> {
+@Validated
+public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<ShopCandidate>> {
     private static final int MAX_SHOP_TYPE_ID = 30;
     private static final long FOOD_TYPE_ID = 1L;
 
@@ -45,11 +50,12 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
     }
 
     @Override
-    public List<Shop> execute(AgentModels.Intent input, AgentContext context) {
+    public List<ShopCandidate> execute(AgentModels.Intent input, AgentContext context) {
         return executeDetailed(input, context).shops();
     }
 
-    public NearbySearchResult executeDetailed(AgentModels.Intent input, AgentContext context) {
+    public NearbySearchResult executeDetailed(@NotNull @Valid AgentModels.Intent input, @Valid AgentContext context) {
+        AgentTool.validateIntent(input);
         if (input.getLatitude() == null || input.getLongitude() == null || input.getRadiusMeter() == null) {
             return NearbySearchResult.empty(NearbySearchResult.Status.NO_LOCATION);
         }
@@ -87,11 +93,12 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
         if (distances.isEmpty()) {
             return NearbySearchResult.empty(NearbySearchResult.Status.NO_MATCH);
         }
-        List<Shop> shops = lookupShops(distances).stream()
+        List<ShopCandidate> shops = lookupShops(distances).stream()
                 .filter(shop -> matchesKeywordAndLocation(shop, input))
+                .map(ShopCandidate::from)
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         shops.forEach(shop -> shop.setDistance(distances.get(shop.getId())));
-        List<Shop> sorted = sortByDistance(shops);
+        List<ShopCandidate> sorted = sortByDistance(shops).stream().limit(30).toList();
         return sorted.isEmpty()
                 ? NearbySearchResult.empty(NearbySearchResult.Status.NO_MATCH)
                 : NearbySearchResult.success(sorted, distances.size());
@@ -104,7 +111,7 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
                     GeoReference.fromCoordinate(input.getLongitude(), input.getLatitude()),
                     // The intent radius is stored in meters; Redis GEO receives the equivalent kilometer value.
                     new Distance(input.getRadiusMeter() / 1000d, Metrics.KILOMETERS),
-                    RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs().includeDistance().limit(10));
+                    RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs().includeDistance().sortAscending().limit(30));
         } catch (RuntimeException e) {
             throw new NearbyShopQueryException(NearbyShopQueryException.Stage.GEO_SEARCH, e);
         }
@@ -114,7 +121,11 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
         try {
             for (GeoResult<RedisGeoCommands.GeoLocation<String>> result : results) {
                 try {
-                    distances.put(Long.valueOf(result.getContent().getName()), distanceInMeters(result.getDistance()));
+                    long shopId = Long.parseLong(result.getContent().getName());
+                    double meters = distanceInMeters(result.getDistance());
+                    if (shopId > 0 && Double.isFinite(meters) && meters >= 0) {
+                        distances.merge(shopId, meters, Math::min);
+                    }
                 } catch (NumberFormatException ignored) {
                     // Ignore malformed GEO members instead of trusting them as shop identifiers.
                 }
@@ -137,15 +148,15 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
         }
     }
 
-    static List<Shop> sortByDistance(List<Shop> shops) {
-        List<Shop> sorted = new ArrayList<>(shops);
-        sorted.sort(Comparator.comparing(Shop::getDistance, Comparator.nullsLast(Double::compareTo)));
+    static List<ShopCandidate> sortByDistance(List<ShopCandidate> shops) {
+        List<ShopCandidate> sorted = new ArrayList<>(shops);
+        sorted.sort(Comparator.comparing(ShopCandidate::getDistance, Comparator.nullsLast(Double::compareTo)));
         return sorted;
     }
 
     private static Set<Long> geoTypeIds(AgentModels.Intent input) {
         String keyword = normalizeKeyword(input.getKeyword());
-        if (keyword == null || isFoodKeyword(keyword)) return Set.of(FOOD_TYPE_ID);
+        if (keyword != null && isFoodKeyword(keyword)) return Set.of(FOOD_TYPE_ID);
         Long typeId = typeIdForKeyword(keyword);
         if (typeId != null) return Set.of(typeId);
         Set<Long> all = new LinkedHashSet<>();
@@ -166,7 +177,8 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
     }
 
     private static boolean contains(String value, String needle) {
-        return StrUtil.isNotBlank(value) && StrUtil.isNotBlank(needle) && value.contains(needle);
+        return StrUtil.isNotBlank(value) && StrUtil.isNotBlank(needle)
+                && value.toLowerCase(java.util.Locale.ROOT).contains(needle.toLowerCase(java.util.Locale.ROOT));
     }
 
     private static String normalizeKeyword(String keyword) {
@@ -184,19 +196,19 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
         return aliases(keyword).stream().anyMatch(a -> contains(shop.getName(), a));
     }
 
-    private static boolean isFoodKeyword(String keyword) {
+    static boolean isFoodKeyword(String keyword) {
         return Set.of("美食", "餐厅", "吃饭", "好吃的", "日料", "寿司", "刺身", "火锅", "咖啡", "烧烤", "甜品")
                 .contains(keyword);
     }
 
-    private static boolean isBroadFoodKeyword(String keyword) {
+    static boolean isBroadFoodKeyword(String keyword) {
         return Set.of("美食", "餐厅", "吃饭", "好吃的").contains(keyword);
     }
 
     /** Maps top-level shop types to the IDs used by tb_shop/tb_shop_type. */
     public static Long typeIdForKeyword(String keyword) {
         if (keyword == null) return null;
-        return switch (keyword.toLowerCase()) {
+        return switch (keyword.toLowerCase(java.util.Locale.ROOT)) {
             case "美食", "餐厅", "吃饭", "好吃的", "日料", "寿司", "刺身", "火锅", "咖啡", "烧烤", "甜品" -> 1L;
             case "ktv", "唱歌" -> 2L;
             case "丽人", "美发" -> 3L;
@@ -211,9 +223,9 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
         };
     }
 
-    private static Set<String> aliases(String keyword) {
+    static Set<String> aliases(String keyword) {
         return switch (keyword) {
-            case "日料", "刺身" -> Set.of(keyword, "日料", "寿司", "刺身");
+            case "日料", "刺身" -> Set.of("日料", "寿司", "刺身");
             case "寿司" -> Set.of("寿司", "日料", "刺身");
             case "火锅" -> Set.of("火锅", "涮锅", "羊蝎子");
             case "ktv", "KTV", "唱歌" -> Set.of("KTV", "唱歌");

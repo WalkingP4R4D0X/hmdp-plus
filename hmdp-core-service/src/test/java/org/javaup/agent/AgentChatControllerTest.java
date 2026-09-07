@@ -4,7 +4,8 @@ import org.javaup.agent.controller.AgentChatController;
 import org.javaup.agent.model.AgentModels;
 import org.javaup.agent.service.AgentOrchestrator;
 import org.javaup.agent.service.AgentRateLimiter;
-import org.javaup.agent.service.AgentRequestRegistry;
+import org.javaup.dto.UserDTO;
+import org.javaup.utils.UserHolder;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.core.MethodParameter;
@@ -12,19 +13,26 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.nio.charset.StandardCharsets;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -34,8 +42,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AgentChatControllerTest {
     @Test
     void conversationEndpointsDeclareTheirPathVariableName() throws NoSuchMethodException {
-        Method messages = AgentChatController.class.getMethod("messages", String.class);
-        Method delete = AgentChatController.class.getMethod("delete", String.class);
+        Method messages = AgentChatController.class.getMethod("messages", String.class, jakarta.servlet.http.HttpServletRequest.class);
+        Method delete = AgentChatController.class.getMethod("delete", String.class, jakarta.servlet.http.HttpServletRequest.class);
 
         assertEquals("id", new MethodParameter(messages, 0).getParameterAnnotation(PathVariable.class).value());
         assertEquals("id", new MethodParameter(delete, 0).getParameterAnnotation(PathVariable.class).value());
@@ -53,8 +61,29 @@ class AgentChatControllerTest {
     void streamAndStopEndpointsAreExposed() throws NoSuchMethodException {
         assertTrue(AgentChatController.class.getMethod("stream", org.javaup.agent.model.AgentModels.ChatRequest.class, jakarta.servlet.http.HttpServletRequest.class)
                 .isAnnotationPresent(org.springframework.web.bind.annotation.PostMapping.class));
-        assertTrue(AgentChatController.class.getMethod("stop", String.class)
+        assertTrue(AgentChatController.class.getMethod("stop", String.class, jakarta.servlet.http.HttpServletRequest.class)
                 .isAnnotationPresent(org.springframework.web.bind.annotation.PostMapping.class));
+    }
+
+    @Test
+    void publicContractMatchesDocumentedEndpointsAndRequestFields() {
+        assertFalse(Arrays.stream(AgentModels.ChatRequest.class.getDeclaredFields())
+                .anyMatch(field -> field.getName().equals("stream")));
+        assertFalse(Arrays.stream(AgentChatController.class.getDeclaredMethods())
+                .anyMatch(method -> method.getName().equals("conversations")));
+    }
+
+    @Test
+    void authenticatedOwnerMatchesDocumentedRedisUserKey() {
+        UserDTO user = new UserDTO();
+        user.setId(42L);
+        UserHolder.saveUser(user);
+        try {
+            assertEquals("42", ReflectionTestUtils.invokeMethod(
+                    new AgentChatController(), "owner", new MockHttpSessionRequest()));
+        } finally {
+            UserHolder.removeUser();
+        }
     }
 
     @Test
@@ -62,25 +91,24 @@ class AgentChatControllerTest {
         AgentModels.ChatResponse response = sampleResponse();
         AgentOrchestrator orchestrator = mock(AgentOrchestrator.class);
         AgentRateLimiter rateLimiter = mock(AgentRateLimiter.class);
-        AgentRequestRegistry requestRegistry = mock(AgentRequestRegistry.class);
-        when(orchestrator.chat(any())).thenReturn(response);
+        when(orchestrator.chat(any(), anyString(), nullable(Long.class))).thenReturn(response);
         when(rateLimiter.tryAcquire(any(), any())).thenReturn(true);
-        org.mockito.Mockito.when(requestRegistry.submit(any(), any())).thenAnswer(invocation -> {
-            ((Runnable) invocation.getArgument(1)).run();
-            return true;
-        });
 
         AgentChatController controller = new AgentChatController();
         ReflectionTestUtils.setField(controller, "orchestrator", orchestrator);
         ReflectionTestUtils.setField(controller, "rateLimiter", rateLimiter);
+        org.javaup.agent.service.AgentRequestRegistry requestRegistry = new org.javaup.agent.service.AgentRequestRegistry();
         ReflectionTestUtils.setField(controller, "requestRegistry", requestRegistry);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockHttpSession session = new MockHttpSession();
         String requestBody = "{\"message\":\"附近3公里的火锅店\",\"clientRequestId\":\"sse-consistency\",\"latitude\":30.32,\"longitude\":120.15}";
 
         String json = mvc.perform(post("/agent/chat")
+                        .session(session)
                         .contentType(MediaType.APPLICATION_JSON).content(requestBody))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         MvcResult streaming = mvc.perform(post("/agent/chat/stream")
+                        .session(session)
                         .contentType(MediaType.APPLICATION_JSON).content(requestBody))
                 .andExpect(request().asyncStarted()).andReturn();
         String sse = mvc.perform(asyncDispatch(streaming))
@@ -91,6 +119,34 @@ class AgentChatControllerTest {
         JsonNode streamingDone = mapper.readTree(eventData(sse, "done"));
         assertEquals(nonStreaming, streamingDone);
         assertTrue(sse.contains("event:shop_card"));
+        verify(orchestrator, times(1)).chat(any(), anyString(), nullable(Long.class));
+        requestRegistry.close();
+    }
+
+    @Test
+    void streamingBusinessErrorIncludesErrorEventBeforeDone() throws Exception {
+        AgentModels.ChatResponse response = sampleResponse();
+        response.setErrorCode("AGENT_NO_LOCATION");
+        AgentOrchestrator orchestrator = mock(AgentOrchestrator.class);
+        AgentRateLimiter rateLimiter = mock(AgentRateLimiter.class);
+        when(orchestrator.chat(any(), anyString(), nullable(Long.class))).thenReturn(response);
+        when(rateLimiter.tryAcquire(any(), any())).thenReturn(true);
+
+        AgentChatController controller = new AgentChatController();
+        ReflectionTestUtils.setField(controller, "orchestrator", orchestrator);
+        ReflectionTestUtils.setField(controller, "rateLimiter", rateLimiter);
+        ReflectionTestUtils.setField(controller, "requestRegistry", new org.javaup.agent.service.AgentRequestRegistry());
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        String requestBody = "{\"message\":\"附近的火锅店\",\"clientRequestId\":\"error-event\"}";
+
+        MvcResult streaming = mvc.perform(post("/agent/chat/stream")
+                        .contentType(MediaType.APPLICATION_JSON).content(requestBody))
+                .andExpect(request().asyncStarted()).andReturn();
+        String sse = mvc.perform(asyncDispatch(streaming))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(sse.contains("event:error"));
+        assertTrue(sse.indexOf("event:error") < sse.indexOf("event:done"));
     }
 
     private static AgentModels.ChatResponse sampleResponse() {
@@ -116,5 +172,8 @@ class AgentChatControllerTest {
                     .reduce("", String::concat);
         }
         throw new AssertionError("Missing SSE event: " + eventName + " in " + sse);
+    }
+
+    private static final class MockHttpSessionRequest extends org.springframework.mock.web.MockHttpServletRequest {
     }
 }

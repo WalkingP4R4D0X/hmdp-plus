@@ -1,11 +1,11 @@
 package org.javaup.agent.tool;
 
-import org.javaup.entity.Shop;
+import org.javaup.agent.model.ShopCandidate;
 
 import java.util.List;
 
 /** Structured outcome for nearby search so infrastructure failures are not reported as no results. */
-public record NearbySearchResult(Status status, List<Shop> shops, int geoCandidateCount) {
+public record NearbySearchResult(Status status, List<ShopCandidate> shops, int geoCandidateCount) {
     public NearbySearchResult {
         shops = shops == null ? List.of() : List.copyOf(shops);
     }
@@ -18,7 +18,7 @@ public record NearbySearchResult(Status status, List<Shop> shops, int geoCandida
         NO_MATCH
     }
 
-    public static NearbySearchResult success(List<Shop> shops, int geoCandidateCount) {
+    public static NearbySearchResult success(List<ShopCandidate> shops, int geoCandidateCount) {
         return new NearbySearchResult(Status.SUCCESS, shops, geoCandidateCount);
     }
 
