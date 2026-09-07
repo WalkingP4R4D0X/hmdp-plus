@@ -18,7 +18,7 @@ public class IntentNormalizer {
     public AgentModels.Intent normalize(AgentModels.Intent intent) {
         if (intent == null) intent = new AgentModels.Intent();
         if (!INTENTS.contains(intent.getIntent())) intent.setIntent("SHOP_RECOMMENDATION");
-        intent.setKeyword(clean(intent.getKeyword(), 40));
+        intent.setKeyword(KeywordNormalizer.normalize(clean(intent.getKeyword(), 40)));
         intent.setLocation(clean(intent.getLocation(), 40));
         intent.setRadiusMeter(inRange(intent.getRadiusMeter(), 100, 50000));
         intent.setBudgetMax(inRange(intent.getBudgetMax(), 0, 100000));

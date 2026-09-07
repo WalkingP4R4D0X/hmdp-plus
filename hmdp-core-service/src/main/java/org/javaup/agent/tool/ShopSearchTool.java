@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import static org.javaup.agent.tool.NearbyShopTool.typeIdForKeyword;
+import org.javaup.agent.service.KeywordNormalizer;
 
 @Component
 public class ShopSearchTool implements AgentTool<AgentModels.Intent, List<Shop>> {
@@ -41,7 +42,7 @@ public class ShopSearchTool implements AgentTool<AgentModels.Intent, List<Shop>>
     }
 
     private static String normalizeKeyword(String keyword) {
-        return StrUtil.isBlank(keyword) ? null : keyword.trim();
+        return KeywordNormalizer.normalize(keyword);
     }
 
     private static String keywordAlias(String keyword) {

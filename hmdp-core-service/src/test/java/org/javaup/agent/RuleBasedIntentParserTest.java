@@ -40,6 +40,16 @@ class RuleBasedIntentParserTest {
     }
 
     @Test
+    void normalizesShopSuffixInModelIntent() {
+        AgentModels.Intent intent = new AgentModels.Intent();
+        intent.setKeyword("火锅店");
+
+        new IntentNormalizer().normalize(intent);
+
+        assertEquals("火锅", intent.getKeyword());
+    }
+
+    @Test
     void greetingDoesNotBecomeAShopRecommendation() {
         RuleBasedIntentParser parser = new RuleBasedIntentParser();
         AgentModels.Intent intent = parser.parse("你好！", List.of());

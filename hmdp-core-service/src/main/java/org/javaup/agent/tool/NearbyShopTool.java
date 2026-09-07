@@ -5,6 +5,7 @@ import jakarta.annotation.Resource;
 import org.javaup.agent.model.AgentContext;
 import org.javaup.agent.model.AgentModels;
 import org.javaup.agent.service.ShopGeoIndexService;
+import org.javaup.agent.service.KeywordNormalizer;
 import org.javaup.entity.Shop;
 import org.javaup.service.IShopService;
 import org.springframework.data.geo.Distance;
@@ -124,7 +125,8 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
     }
 
     static double distanceInMeters(Distance distance) {
-        return distance.getValue() * 1000D;
+        if (distance == null) return Double.NaN;
+        return distance.in(Metrics.KILOMETERS).getValue() * 1000D;
     }
 
     private List<Shop> lookupShops(Map<Long, Double> distances) {
@@ -168,7 +170,7 @@ public class NearbyShopTool implements AgentTool<AgentModels.Intent, List<Shop>>
     }
 
     private static String normalizeKeyword(String keyword) {
-        return StrUtil.isBlank(keyword) ? null : keyword.trim();
+        return KeywordNormalizer.normalize(keyword);
     }
 
     private static boolean matchesKeywordOrType(Shop shop, String keyword) {

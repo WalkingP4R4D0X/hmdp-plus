@@ -30,6 +30,11 @@ class NearbyShopToolTest {
     }
 
     @Test
+    void convertsAnySpringDataMetricToMeters() {
+        assertEquals(1250D, NearbyShopTool.distanceInMeters(new Distance(0.776712D, Metrics.MILES)), 0.5D);
+    }
+
+    @Test
     void reportsMissingLocationBeforeTouchingInfrastructure() {
         NearbyShopTool tool = new NearbyShopTool();
         AgentModels.Intent intent = new AgentModels.Intent();
