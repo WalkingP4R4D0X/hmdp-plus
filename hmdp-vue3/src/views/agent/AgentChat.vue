@@ -3,26 +3,44 @@ import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { streamAgent, stopAgent } from '@/api/agent'
 import {
-  createAssistant, createAgentRunner, locateAgent, filterLabels,
-  errorMessage, fieldText, businessStatus, voucherMoney
+  createAssistant,
+  createAgentRunner,
+  locateAgent,
+  filterLabels,
+  errorMessage,
+  fieldText,
+  businessStatus,
+  voucherMoney
 } from '@/utils/agentStream'
 
 const router = useRouter()
 const input = ref('')
 const messages = ref([
-  { role: 'assistant', content: '你好，我是黑马点评智能导购。告诉我你想找什么店？', cards: [] }
+  {
+    role: 'assistant',
+    content: '你好，我是黑马点评智能导购。告诉我你想找什么店？',
+    cards: []
+  }
 ])
 const loading = ref(false)
 const conversationId = ref(null)
 const location = ref(null)
 const locating = ref(false)
 const inputError = ref('')
-const quick = ['附近有什么好吃的', '拱墅区人均100以内适合约会的餐厅', '找3公里内晚上9点还营业的火锅店']
+const quick = [
+  '附近有什么好吃的',
+  '拱墅区人均100以内适合约会的餐厅',
+  '找3公里内晚上9点还营业的火锅店'
+]
 const runner = createAgentRunner({
   stream: streamAgent,
   stop: stopAgent,
-  onLoading: value => { loading.value = value },
-  onConversation: value => { conversationId.value = value }
+  onLoading: (value) => {
+    loading.value = value
+  },
+  onConversation: (value) => {
+    conversationId.value = value
+  }
 })
 
 async function send(text = input.value) {
@@ -73,8 +91,16 @@ function openShop(card) {
     </header>
     <section class="chat-shell">
       <div class="location-status" role="status">
-        <span>{{ locating ? '正在获取定位…' : location ? '已获取真实定位，可查询附近商户。' : '未获取定位：请允许定位，或输入所在区域、按关键词搜索。' }}</span>
-        <button class="ghost" :disabled="locating" @click="locate">重新定位</button>
+        <span>{{
+          locating
+            ? '正在获取定位…'
+            : location
+              ? '已获取真实定位，可查询附近商户。'
+              : '未获取定位：请允许定位，或输入所在区域、按关键词搜索。'
+        }}</span>
+        <button class="ghost" :disabled="locating" @click="locate">
+          重新定位
+        </button>
       </div>
       <div class="messages" aria-live="polite" aria-relevant="additions text">
         <article
@@ -82,25 +108,39 @@ function openShop(card) {
           :key="index"
           :class="['message', message.role]"
         >
-          <div v-if="message.content || message.phase === 'loading'" class="bubble">
+          <div
+            v-if="message.content || message.phase === 'loading'"
+            class="bubble"
+          >
             {{
               message.content ||
-              (message.phase === 'loading'
-                ? '正在查询真实商户…'
-                : '')
+              (message.phase === 'loading' ? '正在查询真实商户…' : '')
             }}
           </div>
-          <div v-if="message.filters && filterLabels(message.filters).length" class="filters">
+          <div
+            v-if="message.filters && filterLabels(message.filters).length"
+            class="filters"
+          >
             <strong>已生效筛选条件</strong>
-            <span v-for="label in filterLabels(message.filters)" :key="label">{{ label }}</span>
+            <span v-for="label in filterLabels(message.filters)" :key="label">{{
+              label
+            }}</span>
           </div>
           <div v-if="message.fallback" class="fallback">
             智能推荐暂时不可用，已切换到普通搜索
           </div>
-          <p v-if="message.memorySaved === false" class="notice">上下文未保存，下次提问请补充完整筛选条件。</p>
-          <p v-if="message.phase === 'error'" class="error" role="alert">{{ errorMessage(message.errorCode) }}</p>
-          <p v-if="message.phase === 'stopped'" class="notice">已停止生成，以上为停止前收到的内容。</p>
-          <p v-if="message.noResult" class="notice">没有符合条件的商户。可以扩大距离、提高预算或放宽营业时间后重试。</p>
+          <p v-if="message.memorySaved === false" class="notice">
+            上下文未保存，下次提问请补充完整筛选条件。
+          </p>
+          <p v-if="message.phase === 'error'" class="error" role="alert">
+            {{ errorMessage(message.errorCode) }}
+          </p>
+          <p v-if="message.phase === 'stopped'" class="notice">
+            已停止生成，以上为停止前收到的内容。
+          </p>
+          <p v-if="message.noResult" class="notice">
+            没有符合条件的商户。可以扩大距离、提高预算或放宽营业时间后重试。
+          </p>
           <div v-if="message.cards?.length" class="cards">
             <div
               v-for="card in message.cards"
@@ -115,23 +155,62 @@ function openShop(card) {
                 <strong>{{ fieldText(card.name) }}</strong
                 ><span>评分：{{ fieldText(card.score, ' 分') }}</span>
               </div>
-              <p>地址：{{ fieldText(card.address) }}<template v-if="card.area"> · {{ card.area }}</template></p>
+              <p>
+                地址：{{ fieldText(card.address)
+                }}<template v-if="card.area"> · {{ card.area }}</template>
+              </p>
               <p class="meta">
-                人均：{{ fieldText(card.averagePrice, ' 元') }} ·
-                距离：{{ fieldText(card.distanceMeter == null ? null : Math.round(card.distanceMeter), ' 米') }} ·
+                人均：{{ fieldText(card.averagePrice, ' 元') }} · 距离：{{
+                  fieldText(
+                    card.distanceMeter == null
+                      ? null
+                      : Math.round(card.distanceMeter),
+                    ' 米'
+                  )
+                }}
+                ·
                 {{ businessStatus(card.openNow) }}
               </p>
               <p class="meta">营业时间：{{ fieldText(card.openHours) }}</p>
-              <p v-if="card.missingData || card.shopId == null" class="notice">部分商户信息缺失，请在详情页确认。</p>
+              <p v-if="card.missingData || card.shopId == null" class="notice">
+                部分商户信息缺失，请在详情页确认。
+              </p>
               <div class="vouchers">
                 <strong>优惠券</strong>
                 <p v-if="!Array.isArray(card.vouchers)">优惠券信息缺失</p>
                 <p v-else-if="!card.vouchers.length">本次查询未返回优惠券</p>
-                <div v-for="(voucher, voucherIndex) in card.vouchers" :key="voucher.voucherId ?? voucherIndex" class="voucher">
-                  <p>{{ fieldText(voucher.title) }} · 付 {{ voucherMoney(voucher.payValue) }} 抵 {{ voucherMoney(voucher.actualValue) }}</p>
-                  <p class="meta">{{ voucher.valid === true ? '有效' : voucher.valid === false ? '无效' : '有效状态：信息缺失' }} · {{ voucher.needSeckill === true ? '秒杀券' : voucher.needSeckill === false ? '普通券' : '券类型：信息缺失' }}</p>
+                <div
+                  v-for="(voucher, voucherIndex) in card.vouchers"
+                  :key="voucher.voucherId ?? voucherIndex"
+                  class="voucher"
+                >
+                  <p>
+                    {{ fieldText(voucher.title) }} · 付
+                    {{ voucherMoney(voucher.payValue) }} 抵
+                    {{ voucherMoney(voucher.actualValue) }}
+                  </p>
+                  <p class="meta">
+                    {{
+                      voucher.valid === true
+                        ? '有效'
+                        : voucher.valid === false
+                          ? '无效'
+                          : '有效状态：信息缺失'
+                    }}
+                    ·
+                    {{
+                      voucher.needSeckill === true
+                        ? '秒杀券'
+                        : voucher.needSeckill === false
+                          ? '普通券'
+                          : '券类型：信息缺失'
+                    }}
+                  </p>
                   <p class="meta">使用规则：{{ fieldText(voucher.rules) }}</p>
-                  <p class="meta">有效期：{{ fieldText(voucher.beginTime) }} 至 {{ fieldText(voucher.endTime) }}</p>
+                  <p class="meta">
+                    有效期：{{ fieldText(voucher.beginTime) }} 至
+                    {{ fieldText(voucher.endTime) }}
+                  </p>
                 </div>
               </div>
               <small>推荐理由：{{ fieldText(card.reason) }}</small>
@@ -140,17 +219,31 @@ function openShop(card) {
         </article>
       </div>
       <div class="quick">
-        <button v-for="item in quick" :key="item" :disabled="loading" @click="send(item)">
+        <button
+          v-for="item in quick"
+          :key="item"
+          :disabled="loading"
+          @click="send(item)"
+        >
           {{ item }}
         </button>
       </div>
-      <p v-if="inputError" class="input-error error" role="alert">{{ inputError }}</p>
+      <p v-if="inputError" class="input-error error" role="alert">
+        {{ inputError }}
+      </p>
       <div class="composer">
         <textarea
           v-model="input"
           aria-label="查店需求"
           placeholder="例如：西湖区适合约会、人均150以内的日料"
-          @keydown.enter.exact="event => { if (!event.isComposing) { event.preventDefault(); send() } }"
+          @keydown.enter.exact="
+            (event) => {
+              if (!event.isComposing) {
+                event.preventDefault()
+                send()
+              }
+            }
+          "
         /><button v-if="loading" class="stop" @click="stop">停止</button
         ><button v-else class="send" @click="send()">发送</button>
       </div>
@@ -296,21 +389,33 @@ header p {
   border-radius: 8px;
   padding: 3px 7px;
 }
-.notice, .error {
+.notice,
+.error {
   font-size: 13px;
   line-height: 1.6;
 }
-.notice { color: #687067; }
-.error { color: #a43826; }
-.input-error { padding: 0 22px; }
+.notice {
+  color: #687067;
+}
+.error {
+  color: #a43826;
+}
+.input-error {
+  padding: 0 22px;
+}
 .vouchers {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px dashed #ddd9cf;
   font-size: 13px;
 }
-.voucher + .voucher { margin-top: 10px; }
-button:disabled { opacity: 0.6; cursor: not-allowed; }
+.voucher + .voucher {
+  margin-top: 10px;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .quick {
   display: flex;
   gap: 8px;
