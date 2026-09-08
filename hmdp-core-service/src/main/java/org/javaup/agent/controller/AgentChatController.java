@@ -18,6 +18,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @RestController
 @RequestMapping("/agent")
@@ -51,16 +53,20 @@ public class AgentChatController {
         Long requestUserId = userId();
         try {
             if (!allow(request, httpRequest)) { send(emitter, "error", "AGENT_RATE_LIMITED", 1); send(emitter, "done", null, 2); emitter.complete(); return emitter; }
+            AtomicInteger sequence = new AtomicInteger(0);
+            AtomicBoolean streamedText = new AtomicBoolean(false);
             AgentRequestRegistry.Request pending = requestRegistry.submit(owner, request,
-                    () -> orchestrator.chat(request, owner, requestUserId));
+                    () -> orchestrator.chatStream(request, owner, requestUserId,
+                            response -> sendPrepared(emitter, sequence, response),
+                            token -> { if (!Thread.currentThread().isInterrupted()) sendText(emitter, sequence, streamedText, token); }));
             pending.onResult((response, failure) -> {
                 try {
                     pending.ifNotCancelled(() -> {
                         if (failure != null) {
-                            send(emitter, "error", "AGENT_TOOL_TIMEOUT", 1);
-                            send(emitter, "done", null, 2);
+                            send(emitter, "error", "AGENT_TOOL_TIMEOUT", sequence.incrementAndGet());
+                            send(emitter, "done", null, sequence.incrementAndGet());
                         } else {
-                            writeResponse(emitter, response);
+                            finishResponse(emitter, sequence, streamedText, response);
                         }
                     });
                 } catch (IOException ignored) {
@@ -91,14 +97,51 @@ public class AgentChatController {
             emitter.completeWithError(e);
         }
     }
-    private void writeResponse(SseEmitter emitter, AgentModels.ChatResponse response) throws IOException {
-        send(emitter,"status",response.getTraceId(),1); send(emitter,"filter_update",response.getFilters(),2);
-        int seq = 3; for (AgentModels.ShopCard card : response.getCards()) send(emitter,"shop_card",card,seq++);
-        String answer = response.getAnswer() == null ? "" : response.getAnswer();
-        for (int from = 0; from < answer.length(); from += 24) send(emitter,"text_delta",answer.substring(from, Math.min(answer.length(), from + 24)),seq++);
-        if (response.isFallback()) send(emitter,"fallback",response.getErrorCode(),seq++);
-        else if (response.getErrorCode() != null) send(emitter,"error",response.getErrorCode(),seq++);
-        send(emitter,"done",response,seq); emitter.complete();
+    private void sendPrepared(SseEmitter emitter, AtomicInteger sequence, AgentModels.ChatResponse response) {
+        try {
+            send(emitter, "status", response.getTraceId(), sequence.incrementAndGet());
+            send(emitter, "filter_update", response.getFilters(), sequence.incrementAndGet());
+            for (AgentModels.ShopCard card : response.getCards()) {
+                send(emitter, "shop_card", card, sequence.incrementAndGet());
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("SSE client disconnected", e);
+        }
+    }
+
+    private void sendText(SseEmitter emitter, AtomicInteger sequence, AtomicBoolean streamedText, String token) {
+        try {
+            if (token != null && !token.isEmpty()) {
+                send(emitter, "text_delta", token, sequence.incrementAndGet());
+                streamedText.set(true);
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("SSE client disconnected", e);
+        }
+    }
+
+    private void finishResponse(SseEmitter emitter, AtomicInteger sequence, AtomicBoolean streamedText,
+                                AgentModels.ChatResponse response) throws IOException {
+        // Prepared callbacks already emitted cards and streamed LLM deltas. For fallback
+        // and no-card responses, emit the complete answer here so the contract remains useful.
+        if (sequence.get() == 0) {
+            send(emitter,"status",response.getTraceId(),sequence.incrementAndGet());
+            send(emitter,"filter_update",response.getFilters(),sequence.incrementAndGet());
+            for (AgentModels.ShopCard card : response.getCards()) send(emitter,"shop_card",card,sequence.incrementAndGet());
+        }
+        if (!streamedText.get()) {
+            emitAnswerChunks(emitter, sequence, response.getAnswer());
+        }
+        if (response.isFallback()) send(emitter,"fallback",response.getErrorCode(),sequence.incrementAndGet());
+        else if (response.getErrorCode() != null) send(emitter,"error",response.getErrorCode(),sequence.incrementAndGet());
+        send(emitter,"done",response,sequence.incrementAndGet()); emitter.complete();
+    }
+
+    private void emitAnswerChunks(SseEmitter emitter, AtomicInteger sequence, String answer) throws IOException {
+        String text = answer == null ? "" : answer;
+        for (int from = 0; from < text.length(); from += 24) {
+            send(emitter, "text_delta", text.substring(from, Math.min(text.length(), from + 24)), sequence.incrementAndGet());
+        }
     }
     private boolean allow(AgentModels.ChatRequest request, HttpServletRequest httpRequest) {
         boolean allowed = rateLimiter.tryAcquire("ip", httpRequest.getRemoteAddr());

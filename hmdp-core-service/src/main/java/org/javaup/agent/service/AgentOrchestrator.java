@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -47,6 +48,18 @@ public class AgentOrchestrator {
     }
 
     public AgentModels.ChatResponse chat(AgentModels.ChatRequest request, String owner, Long userId) {
+        return chatInternal(request, owner, userId, null, null);
+    }
+
+    public AgentModels.ChatResponse chatStream(AgentModels.ChatRequest request, String owner, Long userId,
+                                               Consumer<AgentModels.ChatResponse> onPrepared,
+                                               Consumer<String> onDelta) {
+        return chatInternal(request, owner, userId, onPrepared, onDelta);
+    }
+
+    private AgentModels.ChatResponse chatInternal(AgentModels.ChatRequest request, String owner, Long userId,
+                                                  Consumer<AgentModels.ChatResponse> onPrepared,
+                                                  Consumer<String> onDelta) {
         long started = System.currentTimeMillis();
         AgentModels.ChatResponse response = new AgentModels.ChatResponse();
         response.setTraceId("trace-" + UUID.randomUUID());
@@ -84,7 +97,13 @@ public class AgentOrchestrator {
                 query(intent, context, response, calls, fallback);
                 if (response.getErrorCode() == null && !fallback && !response.getCards().isEmpty()) {
                     try {
-                        String answer = deepSeekClient.explain(intent, response.getCards());
+                        String answer;
+                        if (onDelta != null && deepSeekClient.isConfigured()) {
+                            onPrepared.accept(response);
+                            answer = deepSeekClient.explainStream(intent, response.getCards(), onDelta);
+                        } else {
+                            answer = deepSeekClient.explain(intent, response.getCards());
+                        }
                         checkCancelled();
                         if (StrUtil.isNotBlank(answer)) response.setAnswer(answer);
                         else throw new IllegalStateException("Explanation unavailable");

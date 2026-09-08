@@ -110,6 +110,11 @@ const toInfo = () => {
       <el-icon><User /></el-icon>
     </div>
   </div>
+  <button class="agent-entry" type="button" @click="router.push('/agent')">
+    <span class="agent-entry-kicker">SMART GUIDE</span>
+    <strong>不知道吃什么？让智能导购帮你找店</strong>
+    <span class="agent-entry-arrow">→</span>
+  </button>
   <div class="type-list">
     <div
       class="type-box"
@@ -167,5 +172,36 @@ const toInfo = () => {
 @import '@/assets/css/index.css';
 .el-input__inner {
   border-radius: 20px;
+}
+.agent-entry {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: calc(100% - 28px);
+  margin: 12px 14px 18px;
+  padding: 15px 20px;
+  border: 0;
+  border-radius: 18px;
+  background: linear-gradient(120deg, #20231f, #48554a);
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 10px 22px #20231f24;
+}
+.agent-entry-kicker {
+  color: #f5c36a;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+}
+.agent-entry strong {
+  flex: 1;
+  font-size: 15px;
+}
+.agent-entry-arrow {
+  font-size: 22px;
+}
+.agent-entry:hover {
+  transform: translateY(-1px);
 }
 </style>

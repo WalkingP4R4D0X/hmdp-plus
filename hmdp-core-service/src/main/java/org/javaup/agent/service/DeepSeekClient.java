@@ -20,6 +20,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 /** Minimal OpenAI-compatible DeepSeek client used only for structured intent parsing. */
 @Slf4j
@@ -126,6 +128,55 @@ public class DeepSeekClient {
             throw failure("explain", e);
         } catch (Exception e) {
             throw failure("explain", e);
+        }
+    }
+
+    /** Streams OpenAI-compatible delta tokens while retaining the complete answer for persistence. */
+    public String explainStream(AgentModels.Intent intent, List<AgentModels.ShopCard> cards,
+                                Consumer<String> onDelta) {
+        if (!isConfigured() || cards == null || cards.isEmpty()) return null;
+        try {
+            Map<String, Object> payload = Map.of("filters", intent, "shops", cards);
+            Map<String, Object> body = new HashMap<>();
+            body.put("model", model);
+            body.put("temperature", 0.2);
+            body.put("max_tokens", 500);
+            body.put("stream", true);
+            body.put("messages", List.of(
+                    Map.of("role", "system", "content", "你是黑马点评导购助手。只能依据给定的已核验商户数据回答，不能修改或补造价格、距离、评分、营业状态或优惠券信息。用简洁中文说明推荐理由，不要输出 JSON。"),
+                    Map.of("role", "user", "content", "用户筛选条件和商户结果如下：" + llmObjectMapper.writeValueAsString(payload))));
+            HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint()))
+                    .timeout(requestTimeout).header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(llmObjectMapper.writeValueAsString(body))).build();
+            HttpResponse<Stream<String>> response = httpClient.send(request, HttpResponse.BodyHandlers.ofLines());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new LlmException("DeepSeek returned HTTP " + response.statusCode());
+            }
+            StringBuilder answer = new StringBuilder();
+            try (Stream<String> lines = response.body()) {
+                lines.map(String::trim).filter(line -> line.startsWith("data:"))
+                        .map(line -> line.substring(5).trim())
+                        .filter(data -> !data.isEmpty() && !"[DONE]".equals(data))
+                        .forEach(data -> {
+                            try {
+                                JsonNode delta = JSON.readTree(data).path("choices").path(0).path("delta").path("content");
+                                if (delta.isTextual() && !delta.textValue().isEmpty()) {
+                                    String token = delta.textValue();
+                                    answer.append(token);
+                                    onDelta.accept(token);
+                                }
+                            } catch (Exception e) {
+                                throw new LlmException("Invalid DeepSeek stream payload");
+                            }
+                        });
+            }
+            return answer.toString().trim();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw failure("explain_stream", e);
+        } catch (Exception e) {
+            throw failure("explain_stream", e);
         }
     }
 

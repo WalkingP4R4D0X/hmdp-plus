@@ -47,7 +47,7 @@
 
 ### M3：流式与增强（建议）
 
-- [x] 完成 `/agent/chat/stream`，发送 `status`、`shop_card`、`text_delta` 和 `done`。（当前为后端完成查询后分段发送的 SSE，非模型 token 级实时转发。）
+- [x] 完成 `/agent/chat/stream`，发送 `status`、`shop_card`、`text_delta` 和 `done`；模型说明使用 OpenAI 兼容接口的 `stream=true`，逐 token 转发 `text_delta`。
 - [x] 使用 `clientRequestId` 和递增 `seq` 防止重连重复展示。
 - [x] 支持停止生成。
 - [x] 接入 `VoucherTool` 与 `ShopContentTool`，只增强推荐理由，不覆盖结构化字段。

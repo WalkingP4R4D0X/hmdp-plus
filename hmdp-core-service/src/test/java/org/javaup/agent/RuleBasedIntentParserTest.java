@@ -13,6 +13,7 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.sun.net.httpserver.HttpServer;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.ArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -147,6 +148,38 @@ class RuleBasedIntentParserTest {
                     () -> client.parseIntent("找火锅", List.of()));
             assertTrue(error.getMessage().contains("HTTP 400"));
             assertTrue(error.getMessage().contains("invalid response_format"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void streamsOpenAiDeltaTokens() throws Exception {
+        HttpServer server;
+        try {
+            server = HttpServer.create(new InetSocketAddress(0), 0);
+        } catch (java.io.IOException e) {
+            return;
+        }
+        server.createContext("/chat/completions", exchange -> {
+            byte[] body = ("data: {\"choices\":[{\"delta\":{\"content\":\"第一段\"}}]}\n\n"
+                    + "data: {\"choices\":[{\"delta\":{\"content\":\"第二段\"}}]}\n\n"
+                    + "data: [DONE]\n\n").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            DeepSeekClient client = new DeepSeekClient(new ObjectMapper(),
+                    "http://127.0.0.1:" + server.getAddress().getPort(), "test-key", "deepseek-chat", Duration.ofSeconds(2));
+            List<String> deltas = new ArrayList<>();
+            AgentModels.Intent intent = new AgentModels.Intent();
+            AgentModels.ShopCard card = new AgentModels.ShopCard();
+            String answer = client.explainStream(intent, List.of(card), deltas::add);
+            assertEquals("第一段第二段", answer);
+            assertEquals(List.of("第一段", "第二段"), deltas);
         } finally {
             server.stop(0);
         }

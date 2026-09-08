@@ -92,6 +92,7 @@ class AgentChatControllerTest {
         AgentOrchestrator orchestrator = mock(AgentOrchestrator.class);
         AgentRateLimiter rateLimiter = mock(AgentRateLimiter.class);
         when(orchestrator.chat(any(), anyString(), nullable(Long.class))).thenReturn(response);
+        when(orchestrator.chatStream(any(), anyString(), nullable(Long.class), any(), any())).thenReturn(response);
         when(rateLimiter.tryAcquire(any(), any())).thenReturn(true);
 
         AgentChatController controller = new AgentChatController();
@@ -130,6 +131,7 @@ class AgentChatControllerTest {
         AgentOrchestrator orchestrator = mock(AgentOrchestrator.class);
         AgentRateLimiter rateLimiter = mock(AgentRateLimiter.class);
         when(orchestrator.chat(any(), anyString(), nullable(Long.class))).thenReturn(response);
+        when(orchestrator.chatStream(any(), anyString(), nullable(Long.class), any(), any())).thenReturn(response);
         when(rateLimiter.tryAcquire(any(), any())).thenReturn(true);
 
         AgentChatController controller = new AgentChatController();
