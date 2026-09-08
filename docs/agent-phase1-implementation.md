@@ -31,33 +31,41 @@
 
 ### M1：后端基础链路（必须）
 
-- [ ] 定义并校验 `ChatRequest`、`ChatResponse`、`Intent`、商户卡片和错误响应。
-- [ ] 完成 `/agent/chat`，校验消息长度、会话 ID 和登录上下文。
-- [ ] 完成 `IntentParser`、`RuleBasedIntentParser` 与 `IntentNormalizer`。
-- [ ] 完成 `ShopSearchTool`、`NearbyShopTool` 和 `ShopRankingService`。
-- [ ] 价格、距离、评分、营业状态和优惠券状态均从业务数据读取，不能由模型填充。
-- [ ] 附近查询使用真实定位；无定位时返回可追问信息，不使用模型虚构坐标。
+- [x] 定义并校验 `ChatRequest`、`ChatResponse`、`Intent`、商户卡片和错误响应。
+- [x] 完成 `/agent/chat`，校验消息长度、会话 ID 和登录上下文。
+- [x] 完成 `IntentParser`、`RuleBasedIntentParser` 与 `IntentNormalizer`。
+- [x] 完成 `ShopSearchTool`、`NearbyShopTool` 和 `ShopRankingService`。
+- [x] 价格、距离、评分、营业状态和优惠券状态均从业务数据读取，不能由模型填充。
+- [x] 附近查询使用真实定位；无定位时返回可追问信息，不使用模型虚构坐标。
 
 ### M2：会话与体验（必须）
 
-- [ ] 用 `ConversationMemory` 保存最近 6–10 轮消息、filters 和 7 天 TTL。
-- [ ] 让“预算改成 100 元以内”等追问只更新对应字段。
-- [ ] 完成 Vue `AgentChat` 页面：输入、消息列表、商户卡片与详情跳转。
-- [ ] 展示加载、无结果、错误和降级状态。
+- [x] 用 `ConversationMemory` 保存最近 6–10 轮消息、filters 和 7 天 TTL。
+- [x] 让“预算改成 100 元以内”等追问只更新对应字段。
+- [x] 完成 Vue `AgentChat` 页面：输入、消息列表、商户卡片与详情跳转。
+- [x] 展示加载、无结果、错误和降级状态。
 
 ### M3：流式与增强（建议）
 
-- [ ] 完成 `/agent/chat/stream`，发送 `status`、`shop_card`、`text_delta` 和 `done`。
-- [ ] 使用 `clientRequestId` 和递增 `seq` 防止重连重复展示。
-- [ ] 支持停止生成。
-- [ ] 接入 `VoucherTool` 与 `ShopContentTool`，只增强推荐理由，不覆盖结构化字段。
+- [x] 完成 `/agent/chat/stream`，发送 `status`、`shop_card`、`text_delta` 和 `done`。（当前为后端完成查询后分段发送的 SSE，非模型 token 级实时转发。）
+- [x] 使用 `clientRequestId` 和递增 `seq` 防止重连重复展示。
+- [x] 支持停止生成。
+- [x] 接入 `VoucherTool` 与 `ShopContentTool`，只增强推荐理由，不覆盖结构化字段。
 
 ### M4：可靠性与安全（建议）
 
-- [ ] 给模型请求增加超时，失败时走规则解析 + 普通搜索降级。
-- [ ] 限制输入长度、工具调用次数和每次返回商户数。
-- [ ] 将用户 ID 从认证上下文获取，限制私有数据查询。
-- [ ] 日志输出 `traceId`、耗时、工具名和降级状态，并对敏感内容脱敏。
+- [x] 给模型请求增加超时，失败时走规则解析 + 普通搜索降级。
+- [x] 限制输入长度、工具调用次数和每次返回商户数。
+- [x] 将用户 ID 从认证上下文获取，限制私有数据查询。
+- [x] 日志输出 `traceId`、耗时、工具名和降级状态，并对敏感内容脱敏。
+
+### 运行前置条件
+
+- 后端运行需要 MySQL 和 Redis；当前开发环境中的 Redis 部署在 Linux 虚拟机的 Docker 容器中，测试配置默认连接 `192.168.100.128:6379`，数据库为 `15`。
+- 启动前确认 Redis 容器已运行、端口 `6379` 已映射并对开发机可达，同时核对密码和 `application.yml` 中的配置。
+- 普通 Agent 单元测试不要求 Docker；`NearbyShopRedisGeoIntegrationTest` 使用 Testcontainers，运行该集成测试需要本机 Docker 可用，否则会跳过。
+- LLM API Key 通过 `AGENT_LLM_API_KEY` 注入；未配置时系统使用规则解析/普通搜索降级路径，不影响基础功能演示。
+- 本机完整 Maven 测试还需要相关外部服务可用；在受限自动化环境中若出现 Netty selector/loopback 初始化错误，应改用正常开发终端或 CI Runner 复测。
 
 ## 4. 接口与数据约定
 
@@ -89,13 +97,13 @@ agent:conversation:user:{userId}
 
 ## 5. 测试清单
 
-- [ ] 预算、距离、评分、营业时间和优惠券的硬过滤测试。
-- [ ] `IntentNormalizer` 的历史条件合并与越界值测试。
-- [ ] `NearbyShopTool` 的米单位转换、无定位、无结果和 Redis 异常测试。
-- [ ] 模型成功、超时和非法 JSON 的客户端契约测试。
-- [ ] `/agent/chat` 与 SSE 事件顺序、停止生成、重复请求测试。
-- [ ] 会话 TTL、删除和越权访问测试。
-- [ ] 前端至少验证正常推荐、无结果与降级三种状态。
+- [x] 预算、距离、评分、营业时间和优惠券的硬过滤测试（已覆盖主要规则；真实 Redis GEO 集成测试需 Docker）。
+- [x] `IntentNormalizer` 的历史条件合并与越界值测试。
+- [x] `NearbyShopTool` 的米单位转换、无定位、无结果和 Redis 异常测试（真实 Redis GEO 集成测试需 Docker）。
+- [x] 模型成功、超时和非法 JSON 的客户端契约测试。
+- [x] `/agent/chat` 与 SSE 事件顺序、停止生成、重复请求测试。
+- [ ] 会话 TTL、删除和越权访问测试（已有会话归属代码，仍需补齐自动化覆盖）。
+- [x] 前端至少验证正常推荐、无结果与降级三种状态。
 
 不要求为了本项目接入 Testcontainers、Kafka、Prometheus、OpenTelemetry 或完整线上压测；已有测试应优先覆盖最能证明 Agent 工程能力的规则和降级路径。
 
