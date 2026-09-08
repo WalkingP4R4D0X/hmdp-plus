@@ -41,7 +41,7 @@ function Redis([string[]]$Parts) {
             $request = "*$($command.Count)`r`n"
             foreach ($part in $command) {
                 $partBytes = [Text.Encoding]::UTF8.GetBytes([string]$part)
-                $request += "`$($partBytes.Length)`r`n$part`r`n"
+                $request += "`$$($partBytes.Length)`r`n$part`r`n"
             }
             $requestBytes = [Text.Encoding]::UTF8.GetBytes($request)
             $stream.Write($requestBytes, 0, $requestBytes.Length)
